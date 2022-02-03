@@ -160,6 +160,11 @@ def accuracy(network, loader, weights, device):
             x = x.to(device)
             y = y.to(device)
             p = network.predict(x)
+            # print("y:",y)
+            clspreds=torch.argmax(p, dim=1)
+            # print("pred:",clspreds)
+            # print("p",p)
+            # print("end.....")
             if weights is None:
                 batch_weights = torch.ones(len(x))
             else:

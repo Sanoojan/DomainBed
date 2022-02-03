@@ -5,6 +5,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.autograd as autograd
 from torch.autograd import Variable
+import torchvision
+from vit_pytorch import ViT
+
 
 import copy
 import numpy as np
@@ -23,6 +26,9 @@ from domainbed.lib.misc import (
 
 ALGORITHMS = [
     'ERM',
+    'ERMBrainstorm',
+    'JustTransformer',
+    'Correspondence',
     'Fish',
     'IRM',
     'GroupDRO',
@@ -112,6 +118,370 @@ class ERM(Algorithm):
 
     def predict(self, x):
         return self.network(x)
+
+class Correspondence(Algorithm):
+    """
+    Creating a weighted model from seperately trained models from ERM on seperate doains (ERMWeightedModel)
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(Correspondence, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+        self.SelfAttention = ViT(
+            image_size = 224,
+            patch_size = 14,
+            num_classes = num_classes,
+            dim = 1024,
+            depth = 6,
+            heads = 16,
+            mlp_dim = 2048,
+            dropout = 0.1,
+            emb_dropout = 0.1
+        )
+
+        self.CrossAttention=ViT(
+            image_size = 224,
+            patch_size = 14,
+            num_classes = num_classes,
+            dim = 1024,
+            depth = 6,
+            heads = 16,
+            mlp_dim = 2048,
+            dropout = 0.1,
+            emb_dropout = 0.1
+        )
+        
+        self.featurizer = networks.Featurizer(input_shape, self.hparams)
+        self.classifier = networks.Classifier(
+            self.featurizer.n_outputs,
+            num_classes,
+            self.hparams['nonlinear_classifier'])
+
+        self.network = nn.Sequential(self.featurizer, self.classifier)
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x,y in minibatches])
+        all_y = torch.cat([y for x,y in minibatches])
+        loss = F.cross_entropy(self.predict(all_x), all_y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {'loss': loss.item()}
+
+        # train_queues = queue_var.train_queues
+        # nclass=len(train_queues)
+        # ndomains=len(train_queues[0])
+        
+        # all_x=None
+        # all_y=None
+
+        
+        # for id_d in range(num_domains): # loop over domains
+        #     mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
+        #     # indices of those egs from domain id_d, whose class label is id_c
+        #     label_tensor=minibatches[id_d][1][mb_ids] # labels
+        #     if mb_ids.size(0)==0:
+        #         #print('class has no element')
+        #         continue
+        #     data_tensor=minibatches[id_d][0][mb_ids] # data
+
+        # print(len(minibatches))
+        totalLoss=0
+        domainlabels=[]
+        for domain_num in range(len(minibatches)):
+
+            all_x = torch.cat([x for x,y in [minibatches[domain_num]]])
+            all_y = torch.cat([y for x,y in [minibatches[domain_num]]])
+            # print(type(all_y))
+            loss = F.cross_entropy(self.predictTrain(all_x,domain_num), all_y)
+            # print("domain:",domain_num," ,all_x_size:",all_x.size())
+            # print("domain:",domain_num," ,all_y_size:",all_y.size())
+            domainlabels+=[domain_num]*len(all_y)
+            self.optimizer[domain_num].zero_grad()
+            loss.backward()
+            self.optimizer[domain_num].step()
+            totalLoss+=loss.item()
+
+        domlabels=torch.LongTensor(domainlabels)
+        domlabels=domlabels.cuda()
+        all_x = torch.cat([x for x,y in minibatches])
+        loss = F.cross_entropy(self.predictDomain(all_x), domlabels)
+        self.DDNoptimizer.zero_grad()
+        loss.backward()
+        self.DDNoptimizer.step()
+        return {'loss': totalLoss}
+
+    def predict(self, x):
+        return self.SelfAttention(x)
+        # print("predict has been called terminate.......")
+        domainprediction=self.DDN(x)
+        dompredict=torch.argmax(domainprediction, dim=1)
+        # print("domain predictions",dompredict)
+        currdomain=dompredict[0].item()
+        # print(dompredict[0].item(),"first one")
+        # print(x[0].shape, "first shape")
+        # print(self.network[0](x[0].unsqueeze(0)))
+
+        return torch.cat([self.network[dompredict[i].item()](x[i].unsqueeze(0)) for i in dompredict])
+        # return np.array([self.network[dompredict[i].item()](x[i].unsqueeze(0))[0].cpu() for i in dompredict])
+
+        # for net in self.network:
+        #     predictions.append(net(x))
+            
+        # return self.network[currdomain](x)
+    
+    def predictDomain(self,x):
+        return self.DDN(x)
+        # return self.v(x)
+
+    def predictTrain(self,x,domain):
+        if torch.cuda.is_available():
+            self.network[domain].cuda()
+        # print(self.network[domain](x))
+        return self.network[domain](x)
+
+class JustTransformer(Algorithm):
+    """
+    Creating a weighted model from seperately trained models from ERM on seperate doains (ERMWeightedModel)
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(JustTransformer, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+        self.SelfAttention = ViT(
+            image_size = 224,
+            patch_size = 14,
+            num_classes = num_classes,
+            dim = 1024,
+            depth = 6,
+            heads = 16,
+            mlp_dim = 2048,
+            dropout = 0.1,
+            emb_dropout = 0.1
+        )
+
+        self.CrossAttention=ViT(
+            image_size = 224,
+            patch_size = 14,
+            num_classes = num_classes,
+            dim = 1024,
+            depth = 6,
+            heads = 16,
+            mlp_dim = 2048,
+            dropout = 0.1,
+            emb_dropout = 0.1
+        )
+        
+        self.featurizer = networks.Featurizer(input_shape, self.hparams)
+        self.classifier = networks.Classifier(
+            self.featurizer.n_outputs,
+            num_classes,
+            self.hparams['nonlinear_classifier'])
+
+        self.network = nn.Sequential(self.featurizer, self.classifier)
+        self.optimizer = torch.optim.Adam(
+            self.SelfAttention.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x,y in minibatches])
+        all_y = torch.cat([y for x,y in minibatches])
+        loss = F.cross_entropy(self.predict(all_x), all_y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {'loss': loss.item()}
+
+        # train_queues = queue_var.train_queues
+        # nclass=len(train_queues)
+        # ndomains=len(train_queues[0])
+        
+        # all_x=None
+        # all_y=None
+
+        
+        # for id_d in range(num_domains): # loop over domains
+        #     mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
+        #     # indices of those egs from domain id_d, whose class label is id_c
+        #     label_tensor=minibatches[id_d][1][mb_ids] # labels
+        #     if mb_ids.size(0)==0:
+        #         #print('class has no element')
+        #         continue
+        #     data_tensor=minibatches[id_d][0][mb_ids] # data
+
+        # print(len(minibatches))
+        totalLoss=0
+        domainlabels=[]
+        for domain_num in range(len(minibatches)):
+
+            all_x = torch.cat([x for x,y in [minibatches[domain_num]]])
+            all_y = torch.cat([y for x,y in [minibatches[domain_num]]])
+            # print(type(all_y))
+            loss = F.cross_entropy(self.predictTrain(all_x,domain_num), all_y)
+            # print("domain:",domain_num," ,all_x_size:",all_x.size())
+            # print("domain:",domain_num," ,all_y_size:",all_y.size())
+            domainlabels+=[domain_num]*len(all_y)
+            self.optimizer[domain_num].zero_grad()
+            loss.backward()
+            self.optimizer[domain_num].step()
+            totalLoss+=loss.item()
+
+        domlabels=torch.LongTensor(domainlabels)
+        domlabels=domlabels.cuda()
+        all_x = torch.cat([x for x,y in minibatches])
+        loss = F.cross_entropy(self.predictDomain(all_x), domlabels)
+        self.DDNoptimizer.zero_grad()
+        loss.backward()
+        self.DDNoptimizer.step()
+        return {'loss': totalLoss}
+
+    def predict(self, x):
+        return self.SelfAttention(x)
+        # print("predict has been called terminate.......")
+        domainprediction=self.DDN(x)
+        dompredict=torch.argmax(domainprediction, dim=1)
+        # print("domain predictions",dompredict)
+        currdomain=dompredict[0].item()
+        # print(dompredict[0].item(),"first one")
+        # print(x[0].shape, "first shape")
+        # print(self.network[0](x[0].unsqueeze(0)))
+
+        return torch.cat([self.network[dompredict[i].item()](x[i].unsqueeze(0)) for i in dompredict])
+        # return np.array([self.network[dompredict[i].item()](x[i].unsqueeze(0))[0].cpu() for i in dompredict])
+
+        # for net in self.network:
+        #     predictions.append(net(x))
+            
+        # return self.network[currdomain](x)
+    
+    def predictDomain(self,x):
+        return self.DDN(x)
+        # return self.v(x)
+
+    def predictTrain(self,x,domain):
+        if torch.cuda.is_available():
+            self.network[domain].cuda()
+        # print(self.network[domain](x))
+        return self.network[domain](x)
+
+class ERMBrainstorm(Algorithm):
+    """
+    Brainstorming model related to test domain Empirical (Risk Minimization with Brainstorm)  (ERMBrainstorm)
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(ERMBrainstorm, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+        self.featurizer = [networks.Featurizer(input_shape, self.hparams) for i in range(num_domains)]
+
+        self.DDNfeaturizer=networks.Featurizer(input_shape, self.hparams)
+        self.DDNClassifier=networks.Classifier(
+            self.DDNfeaturizer.n_outputs,
+            num_domains,
+            self.hparams['nonlinear_classifier'])
+        self.DDN=nn.Sequential(self.DDNfeaturizer, self.DDNClassifier)
+        self.DDNoptimizer=torch.optim.Adam(
+            self.DDN.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+
+        self.classifier = [networks.Classifier(
+            self.featurizer[i].n_outputs,
+            num_classes,
+            self.hparams['nonlinear_classifier'])  for i in range(num_domains)]
+
+        self.network = [nn.Sequential(self.featurizer[i], self.classifier[i]) for i in range(num_domains) ]
+        self.optimizer = [torch.optim.Adam(
+            self.network[i].parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        ) for i in range(num_domains)]
+
+    def update(self, minibatches, unlabeled=None):
+        # train_queues = queue_var.train_queues
+        # nclass=len(train_queues)
+        # ndomains=len(train_queues[0])
+        
+        # all_x=None
+        # all_y=None
+
+        
+        # for id_d in range(num_domains): # loop over domains
+        #     mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
+        #     # indices of those egs from domain id_d, whose class label is id_c
+        #     label_tensor=minibatches[id_d][1][mb_ids] # labels
+        #     if mb_ids.size(0)==0:
+        #         #print('class has no element')
+        #         continue
+        #     data_tensor=minibatches[id_d][0][mb_ids] # data
+
+        # print(len(minibatches))
+        totalLoss=0
+        domainlabels=[]
+        for domain_num in range(len(minibatches)):
+            
+            all_x = torch.cat([x for x,y in [minibatches[domain_num]]])
+            all_y = torch.cat([y for x,y in [minibatches[domain_num]]])
+            # for i in range(5):
+            #     torchvision.utils.save_image(all_x[i],'/home/computervision1/Sanoojan/DomainBed/domainbed/outputs/imageOuts/'+str(domain_num)+'/'+str(i)+'.png')
+            # print(type(all_y))
+            loss = F.cross_entropy(self.predictTrain(all_x,domain_num), all_y)
+            # print("domain:",domain_num," ,all_x_size:",all_x.size())
+            # print("domain:",domain_num," ,all_y_size:",all_y.size())
+            domainlabels+=[domain_num]*len(all_y)
+            self.optimizer[domain_num].zero_grad()
+            loss.backward()
+            self.optimizer[domain_num].step()
+            totalLoss+=loss.item()
+
+        domlabels=torch.LongTensor(domainlabels)
+        domlabels=domlabels.cuda()
+        all_x = torch.cat([x for x,y in minibatches])
+        loss = F.cross_entropy(self.predictDomain(all_x), domlabels)
+        self.DDNoptimizer.zero_grad()
+        loss.backward()
+        self.DDNoptimizer.step()
+        return {'loss': totalLoss}
+
+    def predict(self, x):
+        # print("predict has been called terminate.......")
+        domainprediction=self.DDN(x)
+        dompredict=torch.argmax(domainprediction, dim=1)
+        # print("Domain prediction:",dompredict)
+        currdomain=dompredict[0].item()
+        # print(dompredict[0].item(),"first one")
+        # print(x[0].shape, "first shape")
+        # print(self.network[0](x[0].unsqueeze(0)))
+
+        # try to group images according to domains
+        return torch.cat([self.network[dompredict[i].item()](x[i].unsqueeze(0)) for i in range(len(dompredict))])
+        # return np.array([self.network[dompredict[i].item()](x[i].unsqueeze(0))[0].cpu() for i in dompredict])
+
+        # for net in self.network:
+        #     predictions.append(net(x))
+            
+        # return self.network[currdomain](x)
+    
+    def predictDomain(self,x):
+        return self.DDN(x)
+
+    def predictTrain(self,x,domain):
+        if torch.cuda.is_available():
+            self.network[domain].cuda()
+        # print(self.network[domain](x))
+        return self.network[domain](x)
 
 
 class Fish(Algorithm):
