@@ -28,6 +28,7 @@ def format_mean(data, latex):
     standard error"""
     if len(data) == 0:
         return None, None, "X"
+    print(data)
     mean = 100 * np.mean(list(data))
     err = 100 * np.std(list(data) / np.sqrt(len(data)))
     if latex:
@@ -168,8 +169,8 @@ if __name__ == "__main__":
 
     SELECTION_METHODS = [
         model_selection.IIDAccuracySelectionMethod,
-        model_selection.LeaveOneOutSelectionMethod,
-        model_selection.OracleSelectionMethod,
+        # model_selection.LeaveOneOutSelectionMethod,
+        # model_selection.OracleSelectionMethod,
     ]
 
     for selection_method in SELECTION_METHODS:

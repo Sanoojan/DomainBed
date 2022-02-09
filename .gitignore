@@ -3,3 +3,5 @@ domainbed/facebook.py
 
 domainbed/data/*
 train_output/*
+outputs/
+domainbed/pretrained/best_checkpoint.pth
