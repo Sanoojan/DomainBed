@@ -7,8 +7,6 @@ import torch.autograd as autograd
 from torch.autograd import Variable
 import torchvision
 from vit_pytorch import ViT
-# from timm.models.vision_transformer import _cfg
-from domainbed.lib.cross_visiontransformer import CrossVisionTransformer,_cfg
 
 import itertools
 
@@ -104,8 +102,7 @@ class ERM(Algorithm):
             self.featurizer.n_outputs,
             num_classes,
             self.hparams['nonlinear_classifier'])
-        print("num_domains:",num_domains)
-        
+
         self.network = nn.Sequential(self.featurizer, self.classifier)
         self.optimizer = torch.optim.Adam(
             self.network.parameters(),
@@ -137,10 +134,6 @@ class CorrespondenceSelfCross(Algorithm):
                                   hparams)
         checkpoint=torch.load("/home/computervision1/Sanoojan/DomainBedS/domainbed/pretrained/best_checkpoint.pth")
         
-        self.CrossAttention=CrossVisionTransformer(img_size=7, in_chans=512, patch_size=1, num_classes=num_classes, embed_dim=512, depth=2,
-                 num_heads=2, mlp_ratio=4., qkv_bias=True, representation_size=None, distilled=False,
-                 drop_rate=0.1, attn_drop_rate=0.1, drop_path_rate=0.)
-
         self.SelfAttention = ViT(
             image_size = 7,
             patch_size = 1,
@@ -154,6 +147,17 @@ class CorrespondenceSelfCross(Algorithm):
             emb_dropout = 0.1
         )
 
+        self.CrossAttention=ViT(
+            image_size = 224,
+            patch_size = 14,
+            num_classes = num_classes,
+            dim = 1024,
+            depth = 6,
+            heads = 16,
+            mlp_dim = 2048,
+            dropout = 0.1,
+            emb_dropout = 0.1
+        )
         
         # self.featurizer = torchvision.models.resnet50(pretrained=True)
 
@@ -173,24 +177,20 @@ class CorrespondenceSelfCross(Algorithm):
         self.network=nn.Sequential(self.network,self.classifier)
         # print(self.network)
         # print("params",self.network.parameters())
-        self.optimizer = torch.optim.AdamW(list(self.network.parameters()) + list(self.CrossAttention.parameters()),
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
             lr=self.hparams["lr"],
             weight_decay=self.hparams['weight_decay']
         )
-        # self.optimizer = torch.optim.Adam(
-        #     self.network.parameters(),
-        #     lr=self.hparams["lr"],
-        #     weight_decay=self.hparams['weight_decay']
-        # )
 
     def update(self, minibatches, unlabeled=None):
         all_x = torch.cat([x for x,y in minibatches])
         all_y = torch.cat([y for x,y in minibatches])
         loss = F.cross_entropy(self.predict(all_x), all_y)
-
-        
         # print(self.featurizer(all_x).shape)
-        
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
         
         train_queues = queue_var.train_queues
         nclass=len(train_queues)
@@ -211,29 +211,17 @@ class CorrespondenceSelfCross(Algorithm):
                 current_queue = torch.cat((current_queue, data_tensor), 0)
                 current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
                 train_queues[id_c][id_d] = current_queue
-        cross_learning_data1=[]
-        cross_learning_data2=[]
-        cross_learning_labels=[]
+        cross_learning_data=[]
         domain_nums=list(range(ndomains))
-        combinations=itertools.combinations(domain_nums, 2)
-        for subset in combinations:
-            for i in range(queue_sz):
-                for cls in range(nclass):
-                    cross_learning_data1.append(train_queues[cls][subset[0]][i])
-                    cross_learning_data2.append(train_queues[cls][subset[1]][i])
-                    cross_learning_labels.append(cls)
+        combinations=itertools.combinations(domain_nums, 2):
+        for i in range(queue_sz):
+            for clnclass
+
         
+
+        return {'loss': loss.item()}
+
         
-        cross_learning_data1=torch.stack(cross_learning_data1)
-        cross_learning_data2=torch.stack(cross_learning_data2)
-        cross_learning_labels=torch.tensor(cross_learning_labels).to("cuda")
-        crossLoss=F.cross_entropy(self.CrossAttention(cross_learning_data1,cross_learning_data2), cross_learning_labels)
-        totloss=loss+crossLoss
-        
-        self.optimizer.zero_grad()
-        totloss.backward()
-        self.optimizer.step()
-        return {'loss': totloss.item()}
         
         # all_x=None
         # all_y=None

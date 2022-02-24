@@ -1,0 +1,23 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "train.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/domainbed/scripts/train.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {"PYTHONPATH": "${cwd}"},
+            "args": ["--algorithm", "CorrespondenceSelfCross",
+                "--output_dir", "./domainbed/outputs/correspondence_self_cross_ch",
+                 "--dataset", "PACS" ,"--test_envs", "1",
+                 "--holdout_fraction", "0.2", "--hparams_seed", "0", 
+                 "--data_dir", "/home/computervision1/DG_new_idea/domainbed/data",
+                  "--seed", "789681994", "--task" ,"domain_generalization", "--trial_seed", "1"]
+        }
+    ]
+}

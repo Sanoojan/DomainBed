@@ -10,6 +10,7 @@ import getpass
 import hashlib
 import json
 import os
+import sys
 import random
 import shutil
 import time
@@ -17,7 +18,7 @@ import uuid
 
 import numpy as np
 import torch
-
+print(sys.path)
 from domainbed import datasets
 from domainbed import hparams_registry
 from domainbed import algorithms
