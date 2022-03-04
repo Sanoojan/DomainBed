@@ -276,6 +276,7 @@ if __name__ == "__main__":
 
 
     last_results_keys = None
+    start_time=time.time()
     for step in range(start_step, n_steps):
         step_start_time = time.time()
         minibatches_device = [(x.to(device), y.to(device))
@@ -331,7 +332,8 @@ if __name__ == "__main__":
 
             if args.save_model_every_checkpoint:
                 save_checkpoint(f'model_step{step}.pkl')
-
+    stop_time=time.time()
+    print("Time taken to train: ",str((start_time-stop_time)/60.0)," minutes")
     save_checkpoint('model.pkl')
 
     with open(os.path.join(args.output_dir, 'done'), 'w') as f:

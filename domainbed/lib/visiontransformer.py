@@ -36,7 +36,6 @@ from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_INCE
 from timm.models.helpers import build_model_with_cfg, named_apply, adapt_input_conv
 from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
 from timm.models.registry import register_model
-
 _logger = logging.getLogger(__name__)
 
 
@@ -192,28 +191,24 @@ class Attention(nn.Module):
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
 
-        self.qkv1 = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.qkv2 = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x1,x2):
-        B, N, C = x1.shape
-        qkv1 = self.qkv1(x1).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q1, k1, v1 = qkv1.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
+    def forward(self, x):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
 
-        qkv2 = self.qkv2(x2).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q2, k2, v2 = qkv2.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
-
-        attn = (q2 @ k1.transpose(-2, -1)) * self.scale
+        attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
         attn = self.attn_drop(attn)
 
-        x1 = (attn @ v1).transpose(1, 2).reshape(B, N, C)
-        x1 = self.proj(x1)
-        x1 = self.proj_drop(x1)
-        return x1
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
 
 
 class Block(nn.Module):
@@ -229,13 +224,13 @@ class Block(nn.Module):
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
-    def forward(self, x1,x2):
-        x1 = x1 + self.drop_path(self.attn(self.norm1(x1),self.norm1(x2)))
-        x1 = x1 + self.drop_path(self.mlp(self.norm2(x1)))
-        return x1
+    def forward(self, x):
+        x = x + self.drop_path(self.attn(self.norm1(x)))
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        return x
 
 
-class CrossVisionTransformer(nn.Module):
+class VisionTransformer(nn.Module):
     """ Vision Transformer
 
     A PyTorch impl of : `An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale`
@@ -348,39 +343,33 @@ class CrossVisionTransformer(nn.Module):
         if self.num_tokens == 2:
             self.head_dist = nn.Linear(self.embed_dim, self.num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x1,x2):
-        x1 = self.patch_embed(x1)
-        x2 = self.patch_embed(x2)
-        cls_token1 = self.cls_token.expand(x1.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
-        cls_token2 = self.cls_token.expand(x2.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+    def forward_features(self, x):
+        x = self.patch_embed(x)
+        cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         if self.dist_token is None:
-            x1 = torch.cat((cls_token1, x1), dim=1)
-            x2 = torch.cat((cls_token2, x2), dim=1)
+            x = torch.cat((cls_token, x), dim=1)
         else:
-            x1 = torch.cat((cls_token1, self.dist_token.expand(x1.shape[0], -1, -1), x1), dim=1)
-            x2 = torch.cat((cls_token2, self.dist_token.expand(x2.shape[0], -1, -1), x2), dim=1)
-        x1 = self.pos_drop(x1 + self.pos_embed)
-        x2 = self.pos_drop(x2 + self.pos_embed)
-        x1 = self.blocks(x1,x2)  # think after here...
-        x1 = self.norm(x1)
+            x = torch.cat((cls_token, self.dist_token.expand(x.shape[0], -1, -1), x), dim=1)
+        x = self.pos_drop(x + self.pos_embed)
+        x = self.blocks(x)
+        x = self.norm(x)
         if self.dist_token is None:
-            return self.pre_logits(x1[:, 0])
+            return self.pre_logits(x[:, 0])
         else:
-            return x1[:, 0], x1[:, 1]
+            return x[:, 0], x[:, 1]
 
-    def forward(self, x1,x2):
-        x1 = self.forward_features(x1,x2)
+    def forward(self, x):
+        x = self.forward_features(x)
         if self.head_dist is not None:
-            x1, x1_dist = self.head(x1[0]), self.head_dist(x1[1])  # x must be a tuple
+            x, x_dist = self.head(x[0]), self.head_dist(x[1])  # x must be a tuple
             if self.training and not torch.jit.is_scripting():
                 # during inference, return the average of both classifier predictions
-                return x1, x1_dist
+                return x, x_dist
             else:
-                return (x1 + x1_dist) / 2
+                return (x + x_dist) / 2
         else:
-            x1 = self.head(x1)
-
-        return x1
+            x = self.head(x)
+        return x
 
 
 def _init_vit_weights(module: nn.Module, name: str = '', head_bias: float = 0., jax_impl: bool = False):
@@ -419,7 +408,7 @@ def _init_vit_weights(module: nn.Module, name: str = '', head_bias: float = 0., 
 
 
 @torch.no_grad()
-def _load_weights(model: CrossVisionTransformer, checkpoint_path: str, prefix: str = ''):
+def _load_weights(model: VisionTransformer, checkpoint_path: str, prefix: str = ''):
     """ Load weights from .npz checkpoints for official Google Brain Flax implementation
     """
     import numpy as np
@@ -555,7 +544,7 @@ def _create_vision_transformer(variant, pretrained=False, default_cfg=None, **kw
         repr_size = None
 
     model = build_model_with_cfg(
-        CrossVisionTransformer, variant, pretrained,
+        VisionTransformer, variant, pretrained,
         default_cfg=default_cfg,
         representation_size=repr_size,
         pretrained_filter_fn=checkpoint_filter_fn,

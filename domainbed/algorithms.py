@@ -7,9 +7,11 @@ import torch.autograd as autograd
 from torch.autograd import Variable
 import torchvision
 from vit_pytorch import ViT
+# from timm.models import create_model
 # from timm.models.vision_transformer import _cfg
-from domainbed.lib.cross_visiontransformer import CrossVisionTransformer,_cfg
-
+from domainbed.lib.visiontransformer import *
+from domainbed.lib.cross_visiontransformer import CrossVisionTransformer
+from domainbed.lib.cvt import tiny_cvt,small_cvt
 import itertools
 
 import copy
@@ -31,6 +33,9 @@ queue_sz = queue_var.queue_sz
 
 ALGORITHMS = [
     'ERM',
+    'DeitSmall',
+    'DeitTiny',
+    'CVTTiny',
     'ERMBrainstorm',
     'JustTransformer',
     'CorrespondenceSelfCross',
@@ -127,6 +132,136 @@ class ERM(Algorithm):
     def predict(self, x):
         return self.network(x)
 
+class DeitSmall(ERM):
+    """
+    Empirical Risk Minimization with Deit (Deit-small)
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(DeitSmall, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+                    
+        # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
+        #                               'deit_small_patch16_224', pretrained=True, source='local')    
+        self.network=deit_small_patch16_224(pretrained=True) 
+        self.network.head = nn.Linear(384, num_classes)
+        # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
+  
+        self.optimizer = torch.optim.AdamW(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay'],
+            eps=self.hparams['eps']
+        )
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x,y in minibatches])
+        all_y = torch.cat([y for x,y in minibatches])
+        pred=self.predict(all_x)
+        loss = F.cross_entropy(pred, all_y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {'loss': loss.item()}
+    def predict(self, x):
+        return self.network(x)
+   
+class DeitTiny(ERM):
+    """
+    Empirical Risk Minimization with Deit (Deit-small)
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(DeitTiny, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+                    
+        # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
+        #                               'deit_Tiny_patch16_224', pretrained=True, source='local')    
+        self.network=deit_tiny_patch16_224(pretrained=True) 
+        self.network.head = nn.Linear(192, num_classes)
+        # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
+  
+        self.optimizer = torch.optim.AdamW(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay'],
+            eps=self.hparams['eps']
+        )
+
+class CVTSmall(ERM):
+    """
+    Empirical Risk Minimization with Deit (Deit-small)
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(CVTSmall, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+                    
+        # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
+        #                               'deit_Tiny_patch16_224', pretrained=True, source='local')    
+        self.network=small_cvt(pretrained=True) 
+        # print(self.network)
+        self.network.head = nn.Linear(384, num_classes)
+        # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
+  
+        self.optimizer = torch.optim.AdamW(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay'],
+
+        )
+
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x,y in minibatches])
+        all_y = torch.cat([y for x,y in minibatches])
+        pred=self.predict(all_x)
+        loss = F.cross_entropy(pred, all_y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {'loss': loss.item()}
+    def predict(self, x):
+        return self.network(x)[-1]
+
+class CVTTiny(ERM):
+    """
+    Empirical Risk Minimization with Deit (Deit-small)
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(CVTTiny, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+                    
+        # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
+        #                               'deit_Tiny_patch16_224', pretrained=True, source='local')    
+        self.network=tiny_cvt(pretrained=True) 
+        # print(self.network)
+        self.network.head = nn.Linear(384, num_classes)
+        # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
+  
+        self.optimizer = torch.optim.AdamW(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay'],
+
+        )
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x,y in minibatches])
+        all_y = torch.cat([y for x,y in minibatches])
+        pred=self.predict(all_x)
+        loss = F.cross_entropy(pred, all_y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {'loss': loss.item()}
+    def predict(self, x):
+        return self.network(x)[-1]
+
 class CorrespondenceSelfCross(Algorithm):
     """
     Self and cross correspondence 
@@ -171,9 +306,10 @@ class CorrespondenceSelfCross(Algorithm):
         self.network.load_state_dict(checkpoint['model'])
         self.network.eval()
         self.network=nn.Sequential(self.network,self.classifier)
+        self.crossnet=nn.Sequential(self.featurizer,self.CrossAttention)
         # print(self.network)
         # print("params",self.network.parameters())
-        self.optimizer = torch.optim.AdamW(list(self.network.parameters()) + list(self.CrossAttention.parameters()),
+        self.optimizer = torch.optim.AdamW(list(self.network.parameters()) + list(self.crossnet.parameters()),
             lr=self.hparams["lr"],
             weight_decay=self.hparams['weight_decay']
         )
@@ -227,7 +363,7 @@ class CorrespondenceSelfCross(Algorithm):
         cross_learning_data1=torch.stack(cross_learning_data1)
         cross_learning_data2=torch.stack(cross_learning_data2)
         cross_learning_labels=torch.tensor(cross_learning_labels).to("cuda")
-        crossLoss=F.cross_entropy(self.CrossAttention(cross_learning_data1,cross_learning_data2), cross_learning_labels)
+        crossLoss=F.cross_entropy(self.crossnet(cross_learning_data1,cross_learning_data2), cross_learning_labels)
         totloss=loss+crossLoss
         
         self.optimizer.zero_grad()
