@@ -64,6 +64,7 @@ ALGORITHMS = [
     'TRM',
     'IB_ERM',
     'IB_IRM',
+    'Testing'
 ]
 
 def get_algorithm_class(algorithm_name):
@@ -359,7 +360,7 @@ class CorrespondenceSelfCross(Algorithm):
                     cross_learning_data2.append(train_queues[cls][subset[1]][i])
                     cross_learning_labels.append(cls)
         
-        
+        # print(train_queues)
         cross_learning_data1=torch.stack(cross_learning_data1)
         cross_learning_data2=torch.stack(cross_learning_data2)
         cross_learning_labels=torch.tensor(cross_learning_labels).to("cuda")
@@ -2453,3 +2454,57 @@ class IB_IRM(ERM):
                 'nll': nll.item(),
                 'IRM_penalty': irm_penalty.item(), 
                 'IB_penalty': ib_penalty.item()}
+
+
+class Testing(Algorithm):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(Testing, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+        # self.featurizer = networks.Featurizer(input_shape, self.hparams)
+        # print(self.featurizer)
+        fname="/home/computervision1/Sanoojan/DomainBedS/domainbed/outputs/save_mod_test_deit/model.pkl"
+        try:
+            self.network=load_model(fname).network
+        except:
+            self.network=load_model(fname).network_original
+        
+        self.network.eval()
+        # print(len(self.network.blocks))
+        # self.classifier = networks.Classifier(
+        #     self.featurizer.n_outputs,
+        #     num_classes,
+        #     self.hparams['nonlinear_classifier'])
+
+        # self.network = nn.Sequential(self.featurizer, self.classifier)
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+
+    def update(self, minibatches, unlabeled=None):
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+
+        loss = F.cross_entropy(self.predict(all_x), all_y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {'loss': loss.item()}
+
+    def predict(self, x):
+        
+        return self.network(x)
+
+def load_model(fname):
+    dump = torch.load(fname)
+    algorithm_class = get_algorithm_class(dump["args"]["algorithm"])
+    algorithm = algorithm_class(
+        dump["model_input_shape"],
+        dump["model_num_classes"],
+        dump["model_num_domains"],
+        dump["model_hparams"])
+    algorithm.load_state_dict(dump["model_dict"])
+    return algorithm
