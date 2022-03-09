@@ -30,13 +30,15 @@ from copy import deepcopy
 
 import torch
 import torch.nn as nn
+from torch import einsum
 import torch.nn.functional as F
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
 from timm.models.helpers import build_model_with_cfg, named_apply, adapt_input_conv
 from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
 from timm.models.registry import register_model
-
+from einops import rearrange, repeat
+from einops.layers.torch import Rearrange
 _logger = logging.getLogger(__name__)
 
 
@@ -49,6 +51,7 @@ def _cfg(url='', **kwargs):
         'first_conv': 'patch_embed.proj', 'classifier': 'head',
         **kwargs
     }
+
 
 
 default_cfgs = {
@@ -185,44 +188,157 @@ default_cfgs = {
 }
 
 
-class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
+# helpers
+
+class mySequential(nn.Sequential):
+    def forward(self, *inputs):
+        for module in self._modules.values():
+            if type(inputs) == tuple:
+                inputs = module(*inputs)
+            else:
+                inputs = module(inputs)
+        return inputs
+
+def exists(val):
+    return val is not None
+
+def default(val, d):
+    return val if exists(val) else d
+
+class PreNorm(nn.Module):
+    def __init__(self, dim, fn):
         super().__init__()
-        self.num_heads = num_heads
-        head_dim = dim // num_heads
-        self.scale = head_dim ** -0.5
+        self.norm = nn.LayerNorm(dim)
+        self.fn = fn
+    def forward(self, x, **kwargs):
+        return self.fn(self.norm(x), **kwargs)
 
-        self.qkv1 = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.qkv2 = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
+class FeedForward(nn.Module):
+    def __init__(self, dim, hidden_dim, dropout = 0.):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, dim),
+            nn.Dropout(dropout)
+        )
+    def forward(self, x):
+        return self.net(x)
 
-    def forward(self, x1,x2):
-        B, N, C = x1.shape
-        qkv1 = self.qkv1(x1).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q1, k1, v1 = qkv1.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
+# class Attention(nn.Module):
+#     def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
+#         super().__init__()
+#         self.num_heads = num_heads
+#         head_dim = dim // num_heads
+#         self.scale = head_dim ** -0.5
 
-        qkv2 = self.qkv2(x2).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q2, k2, v2 = qkv2.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
+#         self.qkv1 = nn.Linear(dim, dim * 3, bias=qkv_bias)
+#         self.qkv2 = nn.Linear(dim, dim * 3, bias=qkv_bias)
+#         self.attn_drop = nn.Dropout(attn_drop)
+#         self.proj = nn.Linear(dim, dim)
+#         self.proj_drop = nn.Dropout(proj_drop)
 
-        attn = (q2 @ k1.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
+#     def forward(self, x1,x2):
+#         B, N, C = x1.shape
+#         qkv1 = self.qkv1(x1).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+#         q1, k1, v1 = qkv1.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
 
-        x1 = (attn @ v1).transpose(1, 2).reshape(B, N, C)
-        x1 = self.proj(x1)
-        x1 = self.proj_drop(x1)
-        return x1
+#         qkv2 = self.qkv2(x2).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+#         q2, k2, v2 = qkv2.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
 
+#         attn = (q2 @ k1.transpose(-2, -1)) * self.scale
+#         attn = attn.softmax(dim=-1)
+#         attn = self.attn_drop(attn)
+
+#         x1 = (attn @ v1).transpose(1, 2).reshape(B, N, C)
+#         x1 = self.proj(x1)
+#         x1 = self.proj_drop(x1)
+#         return x1
+
+class Attention(nn.Module):
+    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0.):
+        super().__init__()
+        inner_dim = dim_head *  heads
+        self.heads = heads
+        self.scale = dim_head ** -0.5
+
+        self.attend = nn.Softmax(dim = -1)
+        self.to_q = nn.Linear(dim, inner_dim, bias = False)
+        self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
+
+        self.to_out = nn.Sequential(
+            nn.Linear(inner_dim, dim),
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, x, context = None, kv_include_self = False):
+        b, n, _, h = *x.shape, self.heads
+        context = default(context, x)
+
+        if kv_include_self:
+            context = torch.cat((x, context), dim = 1) # cross attention requires CLS token includes itself as key / value
+
+        qkv = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), qkv)
+
+        dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
+
+        attn = self.attend(dots)
+
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+        out = rearrange(out, 'b h n d -> b n (h d)')
+        return self.to_out(out)
+
+class Transformer(nn.Module):
+    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.):
+        super().__init__()
+        self.layers = nn.ModuleList([])
+        self.norm = nn.LayerNorm(dim)
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)),
+                PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
+            ]))
+
+    def forward(self, x):
+        for attn, ff in self.layers:
+            x = attn(x) + x
+            x = ff(x) + x
+        return self.norm(x)
+
+
+class CrossTransformer(nn.Module):
+    def __init__(self, dim, depth, heads, dim_head, dropout):
+        super().__init__()
+        self.layers = nn.ModuleList([])
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)),
+                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout))
+            ]))
+
+    def forward(self, x1, x2):
+        (im1_cls, im1_patch_tokens), (im2_cls, im2_patch_tokens) = map(lambda t: (t[:, :1], t[:, 1:]), (x1, x2))
+
+        for im1_attend_im2, im2_attend_im1 in self.layers:
+            im1_cls = im1_attend_im2(im1_cls, context = im2_patch_tokens, kv_include_self = True) + im1_cls
+            im2_cls = im2_attend_im1(im2_cls, context = im1_patch_tokens, kv_include_self = True) + im2_cls
+
+        x1 = torch.cat((im1_cls, im1_patch_tokens), dim = 1)
+        x2 = torch.cat((im2_cls, im2_patch_tokens), dim = 1)
+        return x1, x2
 
 class Block(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm,im_enc_depth=1,cross_attn_depth=2,cross_attn_heads = 8,cross_attn_dim_head = 64,dropout=0.,im_enc_mlp_dim=2048,im_enc_dim_head=64):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.tran1=Transformer(dim = dim, dropout = dropout, depth=im_enc_depth,heads=num_heads,mlp_dim=im_enc_mlp_dim,dim_head=im_enc_dim_head)
+        self.tran2=Transformer(dim = dim, dropout = dropout, depth=im_enc_depth,heads=num_heads,mlp_dim=im_enc_mlp_dim,dim_head=im_enc_dim_head)
+        self.crosstran=CrossTransformer(dim=dim,depth=cross_attn_depth,heads=cross_attn_heads,dim_head=cross_attn_dim_head,dropout=dropout)
+        # self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -230,9 +346,13 @@ class Block(nn.Module):
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
     def forward(self, x1,x2):
-        x1 = x1 + self.drop_path(self.attn(self.norm1(x1),self.norm1(x2)))
-        x1 = x1 + self.drop_path(self.mlp(self.norm2(x1)))
-        return x1
+        # print("coming here")
+        # x2=x1
+        x1, x2 = self.tran1(x1), self.tran2(x2)
+        x1, x2 = self.crosstran(x1, x2)
+        # x1 = x1 + self.drop_path(self.attn(self.norm1(x1),self.norm1(x2)))
+        # x1 = x1 + self.drop_path(self.mlp(self.norm2(x1)))
+        return x1,x2
 
 
 class CrossVisionTransformer(nn.Module):
@@ -246,9 +366,9 @@ class CrossVisionTransformer(nn.Module):
     """
 
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
-                 num_heads=12, mlp_ratio=4., qkv_bias=True, representation_size=None, distilled=False,
+                im_enc_depth=1,cross_attn_depth=2,num_heads=12, mlp_ratio=4., qkv_bias=True, representation_size=None, distilled=False,
                  drop_rate=0., attn_drop_rate=0., drop_path_rate=0., embed_layer=PatchEmbed, norm_layer=None,
-                 act_layer=None, weight_init=''):
+                 act_layer=None, weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64):
         """
         Args:
             img_size (int, tuple): input image size
@@ -276,9 +396,11 @@ class CrossVisionTransformer(nn.Module):
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
         act_layer = act_layer or nn.GELU
 
-        self.patch_embed = embed_layer(
+        self.patch_embed1 = embed_layer(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
-        num_patches = self.patch_embed.num_patches
+        self.patch_embed2 = embed_layer(
+            img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
+        num_patches = self.patch_embed1.num_patches
 
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.dist_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if distilled else None
@@ -286,11 +408,29 @@ class CrossVisionTransformer(nn.Module):
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
-        self.blocks = nn.Sequential(*[
+        
+        self.blocks =mySequential(*[
             Block(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
-                attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer)
+                attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer,im_enc_depth=im_enc_depth,cross_attn_depth=cross_attn_depth,
+                cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head)
             for i in range(depth)])
+        
+        # self.Blocks = nn.ModuleList([])
+        # for i in range(depth):
+        #     self.Blocks.append(
+        #        Block(
+        #         dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
+        #         attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer,im_enc_depth=im_enc_depth,cross_attn_depth=cross_attn_depth,
+        #         cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head)
+        #     )
+        
+        # self.blocks = nn.Sequential(*[
+        #     Block(
+        #         dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, drop=drop_rate,
+        #         attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer,im_enc_depth=im_enc_depth,cross_attn_depth=cross_attn_depth,
+        #         cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head)
+        #     for i in range(depth)])
         self.norm = norm_layer(embed_dim)
 
         # Representation layer
@@ -304,11 +444,15 @@ class CrossVisionTransformer(nn.Module):
             self.pre_logits = nn.Identity()
 
         # Classifier head(s)
-        self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
-        self.head_dist = None
+        self.head1 = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
+        self.head2 = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
+        
+        
+        self.head_dist1 = None
+        self.head_dist2 = None
         if distilled:
-            self.head_dist = nn.Linear(self.embed_dim, self.num_classes) if num_classes > 0 else nn.Identity()
-
+            self.head_dist1 = nn.Linear(self.embed_dim, self.num_classes) if num_classes > 0 else nn.Identity()
+            self.head_dist2 = nn.Linear(self.embed_dim, self.num_classes) if num_classes > 0 else nn.Identity()
         self.init_weights(weight_init)
 
     def init_weights(self, mode=''):
@@ -337,20 +481,22 @@ class CrossVisionTransformer(nn.Module):
         return {'pos_embed', 'cls_token', 'dist_token'}
 
     def get_classifier(self):
+        # not changed properly
         if self.dist_token is None:
             return self.head
         else:
             return self.head, self.head_dist
 
     def reset_classifier(self, num_classes, global_pool=''):
+        # not changed properly
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
         if self.num_tokens == 2:
             self.head_dist = nn.Linear(self.embed_dim, self.num_classes) if num_classes > 0 else nn.Identity()
 
     def forward_features(self, x1,x2):
-        x1 = self.patch_embed(x1)
-        x2 = self.patch_embed(x2)
+        x1 = self.patch_embed1(x1)
+        x2 = self.patch_embed2(x2)
         cls_token1 = self.cls_token.expand(x1.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         cls_token2 = self.cls_token.expand(x2.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         if self.dist_token is None:
@@ -361,26 +507,27 @@ class CrossVisionTransformer(nn.Module):
             x2 = torch.cat((cls_token2, self.dist_token.expand(x2.shape[0], -1, -1), x2), dim=1)
         x1 = self.pos_drop(x1 + self.pos_embed)
         x2 = self.pos_drop(x2 + self.pos_embed)
-        x1 = self.blocks(x1,x2)  # think after here...
-        x1 = self.norm(x1)
+        x1,x2 = self.blocks(x1,x2)  
+        x1,x2 = self.norm(x1),self.norm(x2)
         if self.dist_token is None:
-            return self.pre_logits(x1[:, 0])
+            return self.pre_logits(x1[:, 0]),self.pre_logits(x2[:, 0])
         else:
-            return x1[:, 0], x1[:, 1]
+            return x1[:, 0], x1[:, 1],x2[:, 0], x2[:, 1]
 
     def forward(self, x1,x2):
         x1 = self.forward_features(x1,x2)
-        if self.head_dist is not None:
-            x1, x1_dist = self.head(x1[0]), self.head_dist(x1[1])  # x must be a tuple
+        #handle herafter................
+        if self.head_dist1 is not None:
+            x1, x1_dist ,x2,x2_dist= self.head1(x1[0]), self.head_dist1(x1[1]),self.head2(x2[0]), self.head_dist2(x2[1])  # x must be a tuple
             if self.training and not torch.jit.is_scripting():
                 # during inference, return the average of both classifier predictions
-                return x1, x1_dist
+                return x1+x2, x1_dist+x2_dist
             else:
-                return (x1 + x1_dist) / 2
+                return (x1 + x1_dist+x2 + x2_dist) / 2
         else:
-            x1 = self.head(x1)
-
-        return x1
+            x1 = self.head1(x1)
+            x2 = self.head2(x2)
+        return x1+x2
 
 
 def _init_vit_weights(module: nn.Module, name: str = '', head_bias: float = 0., jax_impl: bool = False):

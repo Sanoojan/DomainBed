@@ -190,7 +190,7 @@ if __name__ == "__main__":
         start_time=time.time()
         Job.launch(to_launch, launcher_fn)
         stop_time=time.time()
-        print("Total time taken to Sweep: ",str((start_time-stop_time)/3600.0)," Hours")
+        print("Total time taken to Sweep: ",str((stop_time-start_time)/3600.0)," Hours")
 
     elif args.command == 'delete_incomplete':
         to_delete = [j for j in jobs if j.state == Job.INCOMPLETE]
