@@ -5,3 +5,10 @@ domainbed/data/*
 train_output/*
 outputs/
 domainbed/pretrained/best_checkpoint.pth
+requirements.txt
+environment.yml
+domainbed/pretrained/cvt/cvt_tiny.pth.tar
+domainbed/pretrained/cvt/cvt_small.pth.tar
+domainbed/pretrained/cvt/CvT-21-224x224-IN-1k.pth
+domainbed/pretrained/cvt/CvT-13-224x224-IN-1k.pth
+deit
