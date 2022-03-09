@@ -5,3 +5,8 @@ domainbed/data/*
 train_output/*
 outputs/
 domainbed/pretrained/best_checkpoint.pth
+requirements.txt
+sanoojan.out
+slurm*
+sanoojan2.out
+environment.yml
