@@ -222,7 +222,7 @@ if __name__ == "__main__":
         torch.save(save_dict, os.path.join(args.output_dir, filename))
 
     ################################ Code required for CorrespondenceSelfCross ################################
-    if args.algorithm=='CorrespondenceSelfCross' : # Queue computations 
+    if args.algorithm=='CorrespondenceSelfCross' or 'DeitSmallDtest' or 'CrossImageVIT' : # Queue computations 
         print('Firstly, computing Queues for the algorithm: ',args.algorithm,",pls wait....")
         queue_sz = hparams['batch_size'] # the memory module/ queue size
         minibatches_device = [(x.to(device), y.to(device))
@@ -330,12 +330,7 @@ if __name__ == "__main__":
                         temp_count+=1
                 
                 results[name+'_acc'] = acc
-            if(args.save_best_model):
-                val_acc=temp_acc/(temp_count*1.0)   
-                if(val_acc>=best_val_acc):
-                    model_save=copy.deepcopy(algorithm)  #clone
-                    best_val_acc=val_acc
-                    print("Best model upto now")
+            
             results['mem_gb'] = torch.cuda.max_memory_allocated() / (1024.*1024.*1024.)
 
             results_keys = sorted(results.keys())
@@ -345,6 +340,13 @@ if __name__ == "__main__":
             misc.print_row([results[key] for key in results_keys],
                 colwidth=12)
 
+            if(args.save_best_model):
+                val_acc=temp_acc/(temp_count*1.0)   
+                if(val_acc>=best_val_acc):
+                    model_save=copy.deepcopy(algorithm)  #clone
+                    best_val_acc=val_acc
+                    print("Best model upto now")
+                    
             results.update({
                 'hparams': hparams,
                 'args': vars(args)
