@@ -515,7 +515,7 @@ class CrossVisionTransformer(nn.Module):
             return x1[:, 0], x1[:, 1],x2[:, 0], x2[:, 1]
 
     def forward(self, x1,x2):
-        x1 = self.forward_features(x1,x2)
+        x1,x2 = self.forward_features(x1,x2)
         #handle herafter................
         if self.head_dist1 is not None:
             x1, x1_dist ,x2,x2_dist= self.head1(x1[0]), self.head_dist1(x1[1]),self.head2(x2[0]), self.head_dist2(x2[1])  # x must be a tuple

@@ -11,7 +11,7 @@ from vit_pytorch import ViT
 # from timm.models.vision_transformer import _cfg
 from domainbed.lib.visiontransformer import *
 from domainbed.lib.cross_visiontransformer import CrossVisionTransformer
-from domainbed.lib.cvt import tiny_cvt,small_cvt
+# from domainbed.lib.cvt import tiny_cvt,small_cvt
 from domainbed.lib.CrossImageViT import CrossImageViT
 import itertools
 from prettytable import PrettyTable
