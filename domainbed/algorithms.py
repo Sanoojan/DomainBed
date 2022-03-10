@@ -17,6 +17,8 @@ import itertools
 from prettytable import PrettyTable
 import copy
 import numpy as np
+from torchvision.utils import save_image
+from torchvision.utils import make_grid
 from collections import defaultdict, OrderedDict
 try:
     from backpack import backpack, extend
@@ -275,51 +277,22 @@ class CrossImageVIT(ERM):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(CrossImageVIT, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
-                    
-         
-        # self.network1=deit_small_patch16_224(pretrained=True) 
-        # self.network1.head = nn.Linear(384, num_classes)
-        # print("network1====",self.network1)
-
-        # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
-        # self.network=CrossImageViT(
-        #     image_size = 224,
-        #     num_classes = num_classes,
-        #     depth = 4,               # number of multi-scale encoding blocks
-        #     sm_dim = 192,            # high res dimension
-        #     sm_patch_size = 16,      # high res patch size (should be smaller than lg_patch_size)
-        #     sm_enc_depth = 2,        # high res depth
-        #     sm_enc_heads = 8,        # high res heads
-        #     sm_enc_mlp_dim = 2048,   # high res feedforward dimension
-        #     cross_attn_depth = 2,    # cross attention rounds
-        #     cross_attn_heads = 8,    # cross attention heads
-        #     dropout = 0.1,
-        #     emb_dropout = 0.1
-        # )
+        self.countersave=0          
+        self.num_domains=num_domains
         self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=192, depth=4,
-                im_enc_depth=2,cross_attn_depth=2,num_heads=8, mlp_ratio=4., qkv_bias=True, representation_size=None, distilled=False,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None,
-                 act_layer=None, weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64)
-        # print("network1====",self.network)
-        count_parameters(self.network)
-        pytorch_total_params = sum(p.numel() for p in self.network.parameters())
-        pytorch_total_trainable_params = sum(p.numel() for p in self.network.parameters() if p.requires_grad)
-        print("pytorch_total_params:",pytorch_total_params)
-        print("pytorch_total_trainable_params:",pytorch_total_trainable_params)
+                im_enc_depth=2,cross_attn_depth=2,num_heads=8, representation_size=None, distilled=False,
+                 drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64)
+        # printNetworkParams(self.network)
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
             lr=self.hparams["lr"],
             weight_decay=self.hparams['weight_decay']
         )
     def update(self, minibatches, unlabeled=None):
-        all_x = torch.cat([x for x,y in minibatches])
-        all_y = torch.cat([y for x,y in minibatches])
-        # loss = F.cross_entropy(self.predict(all_x), all_y)
-        
+
         train_queues = queue_var.train_queues
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        all_labels=[]
         for id_c in range(nclass): # loop over classes
             for id_d in range(ndomains): # loop over domains
                 mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
@@ -337,29 +310,22 @@ class CrossImageVIT(ERM):
                 current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
                 train_queues[id_c][id_d] = current_queue
                 # all_labels+=label_tensor
-        cross_learning_data1=[]
-        # # cross_learning_data2=[]
+        cross_learning_data=[[] for i in range(ndomains)]  
         cross_learning_labels=[]
-        # domain_nums=list(range(ndomains))
-        # combinations=itertools.combinations(domain_nums, 2)
-        
-        for i in range(queue_sz):
-            for cls in range(nclass):
-                for j in range(3):
-                    cross_learning_data1.append(train_queues[cls][j][i])
-                    cross_learning_labels.append(cls)
-                # cross_learning_data2.append(train_queues[cls][subset[1]][i])
-                
-        
-        
-        cross_learning_data1=torch.stack(cross_learning_data1)
-        # # cross_learning_data2=torch.stack(cross_learning_data2)
+        for cls in range(nclass):
+            for i in range(queue_sz) :
+                for dom_n in range(ndomains):
+                    cross_learning_data[dom_n].append(train_queues[cls][dom_n][i])
+                cross_learning_labels.append(cls)
+
+        cross_learning_data=[torch.stack(data) for data in cross_learning_data]
         cross_learning_labels=torch.tensor(cross_learning_labels).to("cuda")
-        # # crossLoss=F.cross_entropy(self.crossnet(cross_learning_data1,cross_learning_data2), cross_learning_labels)
-        # # totloss=loss+crossLoss
-        # print(cross_learning_data1.shape)
-        # print(cross_learning_labels)
-        pred=self.predict(cross_learning_data1)
+        if (self.countersave<6):
+            for dom_n in range(ndomains):
+                batch_images = make_grid(cross_learning_data[dom_n], nrow=queue_sz, normalize=True)
+                save_image(batch_images, "/home/computervision1/Sanoojan/DomainBedS/domainbed/image_outputs/batch_im_"+str(self.countersave)+"_"+str(dom_n)+".png",normalize=False)
+            self.countersave+=1
+        pred=self.predictTrain(cross_learning_data)
         loss = F.cross_entropy(pred, cross_learning_labels)
 
         self.optimizer.zero_grad()
@@ -368,7 +334,9 @@ class CrossImageVIT(ERM):
 
         return {'loss': loss.item()}
     def predict(self, x):
-        return self.network(x,x)
+        return self.network([x]*self.num_domains)
+    def predictTrain(self, x):
+        return self.network(x)
 
 class DeitSmallDtest(ERM):
     """
@@ -2709,4 +2677,11 @@ def count_parameters(model):
     print(table)
     print(f"Total Trainable Params: {total_params}")
     return total_params
-    
+
+def printNetworkParams(net):
+    # print("network1====",net)
+    count_parameters(net)
+    pytorch_total_params = sum(p.numel() for p in net.parameters())
+    pytorch_total_trainable_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    print("pytorch_total_params:",pytorch_total_params)
+    print("pytorch_total_trainable_params:",pytorch_total_trainable_params)
