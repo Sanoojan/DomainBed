@@ -27,6 +27,8 @@ import logging
 from functools import partial
 from collections import OrderedDict
 from copy import deepcopy
+import itertools
+from re import X
 
 import torch
 import torch.nn as nn
@@ -310,10 +312,18 @@ class Block(nn.Module):
         self.crosstran=CrossTransformer(dim=dim,depth=cross_attn_depth,heads=cross_attn_heads,dim_head=cross_attn_dim_head,dropout=dropout)
 
 
-    def forward(self, x1,x2):
-        x1, x2 = self.tran(x1), self.tran(x2)
-        x1, x2 = self.crosstran(x1, x2)
-        return x1,x2
+    def forward(self, xlist):
+        xlist = [self.tran(x) for x in xlist]
+        num_x=len(xlist)
+        list_ind=list(range(num_x))
+        combinations=itertools.combinations(list_ind, 2)
+        crosstran_out= [[] for i in range(num_x)]
+        for subset in combinations:
+            x_i,x_j= self.crosstran(xlist[subset[0]], xlist[subset[1]])
+            crosstran_out[subset[0]].append(x_i)
+            crosstran_out[subset[1]].append(x_j)
+        xlist=[sum(x)*1.0/(num_x-1) for x in crosstran_out] # Average over cross attentions
+        return xlist
 
 
 class CrossVisionTransformer(nn.Module):
@@ -357,7 +367,7 @@ class CrossVisionTransformer(nn.Module):
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.num_tokens = 2 if distilled else 1
-        
+        norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
         self.patch_embed = embed_layer(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
 
@@ -432,37 +442,38 @@ class CrossVisionTransformer(nn.Module):
         if self.num_tokens == 2:
             self.head_dist = nn.Linear(self.embed_dim, self.num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x1,x2):
-        x1 = self.patch_embed(x1)
-        x2 = self.patch_embed(x2)
-        cls_token = self.cls_token.expand(x1.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+    def forward_features(self, xlist):
+        cls_token = self.cls_token.expand(xlist[0].shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
+        
+        xlist=[self.patch_embed(x) for x in xlist]
         if self.dist_token is None:
-            x1 = torch.cat((cls_token, x1), dim=1)
-            x2 = torch.cat((cls_token, x2), dim=1)
+            xlist = [torch.cat((cls_token, x), dim=1) for x in xlist]
         else:
-            x1 = torch.cat((cls_token, self.dist_token.expand(x1.shape[0], -1, -1), x1), dim=1)
-            x2 = torch.cat((cls_token, self.dist_token.expand(x2.shape[0], -1, -1), x2), dim=1)
-        x1 = self.pos_drop(x1 + self.pos_embed)
-        x2 = self.pos_drop(x2 + self.pos_embed)
-        x1,x2 = self.blocks(x1,x2)  
-        x1,x2 = self.norm(x1),self.norm(x2)
-        if self.dist_token is None:
-            return self.pre_logits(x1[:, 0]),self.pre_logits(x2[:, 0])
-        else:
-            return x1[:, 0], x1[:, 1],x2[:, 0], x2[:, 1]
+            xlist = [torch.cat((cls_token, self.dist_token.expand(x.shape[0], -1, -1), x), dim=1) for x in xlist]
+        xlist = [self.pos_drop(x + self.pos_embed) for x in xlist]
 
-    def forward(self, x1,x2):
-        x1,x2 = self.forward_features(x1,x2)
+        xlist = self.blocks(xlist)  
+        xlist=[self.norm(x) for x in xlist]
+
+        if self.dist_token is None:
+            return [self.pre_logits(x[:, 0]) for x in xlist]
+        else:
+            return [(x[:, 0],x[:, 1]) for x in xlist]
+
+    def forward(self, xlist):
+        xlist = self.forward_features(xlist)
         if self.head_dist is not None:
-            x1, x1_dist ,x2,x2_dist= self.head(x1[0]), self.head_dist(x1[1]),self.head(x2[0]), self.head_dist(x2[1])  # x must be a tuple
+            
+            xlist=[self.head(x[0]) for x in xlist]
+            xlist_dist=[self.head(x[1]) for x in xlist]
             if self.training and not torch.jit.is_scripting():
                 # during inference, return the average of both classifier predictions
-                return x1+x2, x1_dist+x2_dist
+                return sum(xlist),sum(xlist_dist)
             else:
-                return (x1 + x1_dist+x2 + x2_dist) / 2
+                return (sum(xlist)+sum(xlist_dist)) / 2
         else:
-            x1,x2 = self.head(x1),self.head(x2)
-        return x1+x2
+            xlist=[self.head(x) for x in xlist]
+        return sum(xlist)
 
 
 def _init_vit_weights(module: nn.Module, name: str = '', head_bias: float = 0., jax_impl: bool = False):
