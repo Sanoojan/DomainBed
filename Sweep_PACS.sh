@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=PACS_DeitTiny
+#SBATCH --job-name=PACS_DeitSmall
 #SBATCH --gres gpu:2
 #SBATCH --nodes 1
 #SBATCH --cpus-per-task=4
@@ -7,9 +7,9 @@
 
  python -m domainbed.scripts.sweep delete_incomplete \
     --data_dir=/nfs/users/ext_maryam.sultana/DG_new_idea/domainbed/data \
-    --output_dir=./domainbed/outputs/DeitTiny_check \
+    --output_dir=./domainbed/outputs/CVTTiny_not_pretrained \
     --command_launcher multi_gpu \
-    --algorithms DeitTiny \
+    --algorithms CVTTiny \
     --single_test_envs \
     --datasets PACS \
     --n_hparams 1  \
@@ -19,9 +19,9 @@
 
  python -m domainbed.scripts.sweep launch \
     --data_dir=/nfs/users/ext_maryam.sultana/DG_new_idea/domainbed/data \
-    --output_dir=./domainbed/outputs/DeitTiny_check \
+    --output_dir=./domainbed/outputs/CVTTiny_not_pretrained \
     --command_launcher multi_gpu \
-    --algorithms DeitTiny \
+    --algorithms CVTTiny \
     --single_test_envs \
     --datasets PACS \
     --n_hparams 1  \

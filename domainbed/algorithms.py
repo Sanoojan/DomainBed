@@ -11,7 +11,7 @@ from vit_pytorch import ViT
 # from timm.models.vision_transformer import _cfg
 from domainbed.lib.visiontransformer import *
 from domainbed.lib.cross_visiontransformer import CrossVisionTransformer
-# from domainbed.lib.cvt import tiny_cvt,small_cvt
+from domainbed.lib.cvt import tiny_cvt,small_cvt
 from domainbed.lib.CrossImageViT import CrossImageViT
 import itertools
 from prettytable import PrettyTable
@@ -146,7 +146,7 @@ class DeitSmall(ERM):
                     
         # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
         #                               'deit_small_patch16_224', pretrained=True, source='local')    
-        self.network=deit_small_patch16_224(pretrained=True) 
+        self.network=deit_small_patch16_224(pretrained=False) 
         self.network.head = nn.Linear(384, num_classes)
         # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
   
@@ -203,7 +203,7 @@ class CVTSmall(ERM):
                     
         # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
         #                               'deit_Tiny_patch16_224', pretrained=True, source='local')    
-        self.network=small_cvt(pretrained=True) 
+        self.network=small_cvt(pretrained=False) 
         # print(self.network)
         self.network.head = nn.Linear(384, num_classes)
         # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
@@ -240,7 +240,7 @@ class CVTTiny(ERM):
                     
         # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
         #                               'deit_Tiny_patch16_224', pretrained=True, source='local')    
-        self.network=tiny_cvt(pretrained=True) 
+        self.network=tiny_cvt(pretrained=False) 
         # print(self.network)
         self.network.head = nn.Linear(384, num_classes)
         # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
