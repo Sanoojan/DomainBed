@@ -282,24 +282,24 @@ class CrossImageVIT(ERM):
         # print("network1====",self.network1)
 
         # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
-        # self.network=CrossImageViT(
-        #     image_size = 224,
-        #     num_classes = num_classes,
-        #     depth = 4,               # number of multi-scale encoding blocks
-        #     sm_dim = 192,            # high res dimension
-        #     sm_patch_size = 16,      # high res patch size (should be smaller than lg_patch_size)
-        #     sm_enc_depth = 2,        # high res depth
-        #     sm_enc_heads = 8,        # high res heads
-        #     sm_enc_mlp_dim = 2048,   # high res feedforward dimension
-        #     cross_attn_depth = 2,    # cross attention rounds
-        #     cross_attn_heads = 8,    # cross attention heads
-        #     dropout = 0.1,
-        #     emb_dropout = 0.1
-        # )
-        self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=192, depth=4,
-                im_enc_depth=2,cross_attn_depth=2,num_heads=8, mlp_ratio=4., qkv_bias=True, representation_size=None, distilled=False,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None,
-                 act_layer=None, weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64)
+        self.network=CrossImageViT(
+            image_size = 224,
+            num_classes = num_classes,
+            depth = 4,               # number of multi-scale encoding blocks
+            sm_dim = 192,            # high res dimension
+            sm_patch_size = 16,      # high res patch size (should be smaller than lg_patch_size)
+            sm_enc_depth = 2,        # high res depth
+            sm_enc_heads = 8,        # high res heads
+            sm_enc_mlp_dim = 2048,   # high res feedforward dimension
+            cross_attn_depth = 2,    # cross attention rounds
+            cross_attn_heads = 8,    # cross attention heads
+            dropout = 0.1,
+            emb_dropout = 0.1
+        )
+        # self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=192, depth=4,
+        #         im_enc_depth=2,cross_attn_depth=2,num_heads=8, mlp_ratio=4., qkv_bias=True, representation_size=None, distilled=False,
+        #          drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None,
+        #          act_layer=None, weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64)
         # print("network1====",self.network)
         count_parameters(self.network)
         pytorch_total_params = sum(p.numel() for p in self.network.parameters())
