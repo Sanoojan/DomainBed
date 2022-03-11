@@ -318,6 +318,8 @@ class Block(nn.Module):
         list_ind=list(range(num_x))
         combinations=itertools.combinations(list_ind, 2)
         crosstran_out= [[] for i in range(num_x)]
+        if num_x==1:
+            return xlist
         for subset in combinations:
             x_i,x_j= self.crosstran(xlist[subset[0]], xlist[subset[1]])
             crosstran_out[subset[0]].append(x_i)
@@ -460,7 +462,7 @@ class CrossVisionTransformer(nn.Module):
         else:
             return [(x[:, 0],x[:, 1]) for x in xlist]
 
-    def forward(self, xlist):
+    def forward(self, xlist,return_list=False):
         xlist = self.forward_features(xlist)
         if self.head_dist is not None:
             
@@ -473,6 +475,8 @@ class CrossVisionTransformer(nn.Module):
                 return (sum(xlist)+sum(xlist_dist)) / 2
         else:
             xlist=[self.head(x) for x in xlist]
+        if self.training and (not torch.jit.is_scripting()) and return_list:
+            return xlist
         return sum(xlist)
 
 
