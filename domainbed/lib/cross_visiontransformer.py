@@ -288,16 +288,15 @@ class CrossTransformer(nn.Module):
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)),
                 PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout))
             ]))
 
     def forward(self, x1, x2):
         (im1_cls, im1_patch_tokens), (im2_cls, im2_patch_tokens) = map(lambda t: (t[:, :1], t[:, 1:]), (x1, x2))
 
-        for im1_attend_im2, im2_attend_im1 in self.layers:
+        for im1_attend_im2 in self.layers:
             im1_cls = im1_attend_im2(im1_cls, context = im2_patch_tokens, kv_include_self = True) + im1_cls
-            im2_cls = im2_attend_im1(im2_cls, context = im1_patch_tokens, kv_include_self = True) + im2_cls
+            im2_cls = im1_attend_im2(im2_cls, context = im1_patch_tokens, kv_include_self = True) + im2_cls
 
         x1 = torch.cat((im1_cls, im1_patch_tokens), dim = 1)
         x2 = torch.cat((im2_cls, im2_patch_tokens), dim = 1)
@@ -305,27 +304,31 @@ class CrossTransformer(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, dim, num_heads,im_enc_depth=1,cross_attn_depth=2,cross_attn_heads = 8,cross_attn_dim_head = 64,dropout=0.,im_enc_mlp_dim=2048,im_enc_dim_head=64):
+    def __init__(self, dim, num_heads,im_enc_depth=1,cross_attn_depth=2,cross_attn_heads = 8,cross_attn_dim_head = 64,dropout=0.,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False):
         super().__init__()
-
-        self.tran=Transformer(dim = dim, dropout = dropout, depth=im_enc_depth,heads=num_heads,mlp_dim=im_enc_mlp_dim,dim_head=im_enc_dim_head)
-        self.crosstran=CrossTransformer(dim=dim,depth=cross_attn_depth,heads=cross_attn_heads,dim_head=cross_attn_dim_head,dropout=dropout)
-
+        self.nocross=nocross
+        if not nocross:
+            self.tran=Transformer(dim = dim, dropout = dropout, depth=im_enc_depth,heads=num_heads,mlp_dim=im_enc_mlp_dim,dim_head=im_enc_dim_head)
+            self.crosstran=CrossTransformer(dim=dim,depth=cross_attn_depth,heads=cross_attn_heads,dim_head=cross_attn_dim_head,dropout=dropout)
+        else:
+            self.tran=Transformer(dim = dim, dropout = dropout, depth=im_enc_depth,heads=num_heads,mlp_dim=im_enc_mlp_dim,dim_head=im_enc_dim_head)
 
     def forward(self, xlist):
         xlist = [self.tran(x) for x in xlist]
         num_x=len(xlist)
+        if num_x==1 or self.nocross:
+            return xlist
+        
         list_ind=list(range(num_x))
         combinations=itertools.combinations(list_ind, 2)
         crosstran_out= [[] for i in range(num_x)]
-        if num_x==1:
-            return xlist
         for subset in combinations:
             x_i,x_j= self.crosstran(xlist[subset[0]], xlist[subset[1]])
             crosstran_out[subset[0]].append(x_i)
             crosstran_out[subset[1]].append(x_j)
         xlist=[sum(x)*1.0/(num_x-1) for x in crosstran_out] # Average over cross attentions
         return xlist
+
 
 
 class CrossVisionTransformer(nn.Module):
@@ -341,7 +344,7 @@ class CrossVisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                 im_enc_depth=1,cross_attn_depth=2,num_heads=12,  representation_size=None, distilled=False,
                 drop_rate=0., embed_layer=PatchEmbed, norm_layer=None,
-                weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64):
+                weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False):
         """
         Args:
             img_size (int, tuple): input image size
@@ -383,7 +386,7 @@ class CrossVisionTransformer(nn.Module):
         self.blocks =mySequential(*[
             Block(
                 dim=embed_dim, num_heads=num_heads,im_enc_depth=im_enc_depth,cross_attn_depth=cross_attn_depth,
-                cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head)
+                cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head,nocross=nocross)
             for i in range(depth)])
         
         self.norm = norm_layer(embed_dim)
