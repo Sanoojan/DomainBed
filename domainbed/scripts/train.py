@@ -222,7 +222,7 @@ if __name__ == "__main__":
         torch.save(save_dict, os.path.join(args.output_dir, filename))
 
     ################################ Code required for CorrespondenceSelfCross ################################
-    if args.algorithm in ('CorrespondenceSelfCross' ,'DeitSmallDtest','CrossImageVIT') : # Queue computations 
+    if args.algorithm in ('CorrespondenceSelfCross' ,'DeitSmallDtest','CrossImageVIT','CrossImageVITSepCE','CrossImageVITDeit') : # Queue computations 
         print('Firstly, computing Queues for the algorithm: ',args.algorithm,",pls wait....")
         queue_sz = hparams['batch_size'] # the memory module/ queue size
         minibatches_device = [(x.to(device), y.to(device))
