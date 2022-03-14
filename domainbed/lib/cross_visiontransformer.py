@@ -285,11 +285,11 @@ class Transformer(nn.Module):
 class CrossTransformer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, dropout):
         super().__init__()
-        self.layers = nn.ModuleList([])
+        self.layers = []
         for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout))
-            ]))
+            self.layers.append(
+                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)).to("cuda")
+            )
 
     def forward(self, x1, x2):
         (im1_cls, im1_patch_tokens), (im2_cls, im2_patch_tokens) = map(lambda t: (t[:, :1], t[:, 1:]), (x1, x2))
@@ -304,9 +304,11 @@ class CrossTransformer(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, dim, num_heads,im_enc_depth=1,cross_attn_depth=2,cross_attn_heads = 8,cross_attn_dim_head = 64,dropout=0.,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False):
+    def __init__(self, dim, num_heads,im_enc_depth=1,cross_attn_depth=2,cross_attn_heads = 8,cross_attn_dim_head = 64,dropout=0.,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False,return_self=False,num_blocks=4):
         super().__init__()
+        self.num_blocks=num_blocks
         self.nocross=nocross
+        self.return_self=return_self
         if not nocross:
             self.tran=Transformer(dim = dim, dropout = dropout, depth=im_enc_depth,heads=num_heads,mlp_dim=im_enc_mlp_dim,dim_head=im_enc_dim_head)
             self.crosstran=CrossTransformer(dim=dim,depth=cross_attn_depth,heads=cross_attn_heads,dim_head=cross_attn_dim_head,dropout=dropout)
@@ -318,6 +320,9 @@ class Block(nn.Module):
         num_x=len(xlist)
         if num_x==1 or self.nocross:
             return xlist
+        if self.return_self and self.num_blocks==1:
+            a=2
+            xselflist=xlist
         
         list_ind=list(range(num_x))
         combinations=itertools.combinations(list_ind, 2)
@@ -327,6 +332,8 @@ class Block(nn.Module):
             crosstran_out[subset[0]].append(x_i)
             crosstran_out[subset[1]].append(x_j)
         xlist=[sum(x)*1.0/(num_x-1) for x in crosstran_out] # Average over cross attentions
+        if self.return_self and self.num_blocks==1:
+            return xlist,xselflist
         return xlist
 
 
@@ -344,7 +351,7 @@ class CrossVisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                 im_enc_depth=1,cross_attn_depth=2,num_heads=12,  representation_size=None, distilled=False,
                 drop_rate=0., embed_layer=PatchEmbed, norm_layer=None,
-                weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False):
+                weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False,return_self=False):
         """
         Args:
             img_size (int, tuple): input image size
@@ -382,11 +389,11 @@ class CrossVisionTransformer(nn.Module):
         self.dist_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if distilled else None
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
-
+        self.return_self=return_self
         self.blocks =mySequential(*[
             Block(
                 dim=embed_dim, num_heads=num_heads,im_enc_depth=im_enc_depth,cross_attn_depth=cross_attn_depth,
-                cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head,nocross=nocross)
+                cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head,nocross=nocross,return_self=return_self,num_blocks=depth)
             for i in range(depth)])
         
         self.norm = norm_layer(embed_dim)
@@ -456,31 +463,56 @@ class CrossVisionTransformer(nn.Module):
         else:
             xlist = [torch.cat((cls_token, self.dist_token.expand(x.shape[0], -1, -1), x), dim=1) for x in xlist]
         xlist = [self.pos_drop(x + self.pos_embed) for x in xlist]
+        if not self.return_self or len(xlist)==1:
+            xlist = self.blocks(xlist)  
+            xlist=[self.norm(x) for x in xlist]
 
-        xlist = self.blocks(xlist)  
-        xlist=[self.norm(x) for x in xlist]
-
-        if self.dist_token is None:
-            return [self.pre_logits(x[:, 0]) for x in xlist]
+            if self.dist_token is None:
+                return [self.pre_logits(x[:, 0]) for x in xlist]
+            else:
+                return [(x[:, 0],x[:, 1]) for x in xlist]
         else:
-            return [(x[:, 0],x[:, 1]) for x in xlist]
+            xlist,xself_list = self.blocks(xlist)  
+            xlist,xself_list=[self.norm(x) for x in xlist],[self.norm(x) for x in xself_list]
+
+            if self.dist_token is None:
+                return [self.pre_logits(x[:, 0]) for x in xlist],[self.pre_logits(x[:, 0]) for x in xself_list]
+            else:
+                return [(x[:, 0],x[:, 1]) for x in xlist],[(x[:, 0],x[:, 1]) for x in xself_list]
 
     def forward(self, xlist,return_list=False):
-        xlist = self.forward_features(xlist)
-        if self.head_dist is not None:
-            
-            xlist=[self.head(x[0]) for x in xlist]
-            xlist_dist=[self.head(x[1]) for x in xlist]
-            if self.training and not torch.jit.is_scripting():
-                # during inference, return the average of both classifier predictions
-                return sum(xlist),sum(xlist_dist)
+        if (not self.return_self) or len(xlist)==1:
+            xlist = self.forward_features(xlist)
+            if self.head_dist is not None:
+                
+                xlist=[self.head(x[0]) for x in xlist]
+                xlist_dist=[self.head(x[1]) for x in xlist]
+                if self.training and not torch.jit.is_scripting():
+                    # during inference, return the average of both classifier predictions
+                    return sum(xlist),sum(xlist_dist)
+                else:
+                    return (sum(xlist)+sum(xlist_dist)) / 2
             else:
-                return (sum(xlist)+sum(xlist_dist)) / 2
+                xlist=[self.head(x) for x in xlist]
+            if self.training and (not torch.jit.is_scripting()) and return_list:
+                return xlist
+            return sum(xlist)
         else:
-            xlist=[self.head(x) for x in xlist]
-        if self.training and (not torch.jit.is_scripting()) and return_list:
-            return xlist
-        return sum(xlist)
+            xlist,xself_list = self.forward_features(xlist)
+            if self.head_dist is not None:
+                
+                xlist,xself_list=[self.head(x[0]) for x in xlist],[self.head(x[0]) for x in xself_list]
+                xlist_dist,xself_list_dis=[self.head(x[1]) for x in xlist],[self.head(x[1]) for x in xself_list]
+                if self.training and not torch.jit.is_scripting():
+                    # during inference, return the average of both classifier predictions
+                    return sum(xlist),sum(xlist_dist),sum(xself_list),sum(xself_list_dis)
+                else:
+                    return (sum(xlist)+sum(xlist_dist)) / 2,(sum(xself_list)+sum(xself_list_dis)) / 2
+            else:
+                xlist,xself_list=[self.head(x) for x in xlist],[self.head(x) for x in xself_list]
+            if self.training and (not torch.jit.is_scripting()) and return_list:
+                return xlist,xself_list
+            return sum(xlist),sum(xself_list)
 
 
 def _init_vit_weights(module: nn.Module, name: str = '', head_bias: float = 0., jax_impl: bool = False):
