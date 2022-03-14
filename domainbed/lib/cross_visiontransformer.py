@@ -321,7 +321,6 @@ class Block(nn.Module):
         if num_x==1 or self.nocross:
             return xlist
         if self.return_self and self.num_blocks==1:
-            a=2
             xselflist=xlist
         
         list_ind=list(range(num_x))
