@@ -285,11 +285,10 @@ class Transformer(nn.Module):
 class CrossTransformer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, dropout):
         super().__init__()
-        self.layers = []
-        for _ in range(depth):
-            self.layers.append(
-                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)).to("cuda")
-            )
+        self.layers = nn.ModuleList([
+                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout))
+            for _ in range(depth)])
+        
 
     def forward(self, x1, x2):
         (im1_cls, im1_patch_tokens), (im2_cls, im2_patch_tokens) = map(lambda t: (t[:, :1], t[:, 1:]), (x1, x2))

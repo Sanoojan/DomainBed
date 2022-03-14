@@ -142,7 +142,7 @@ class ERM(Algorithm):
     def predict(self, x):
         return self.network(x)
 
-class DeitSmall(ERM):
+class DeitSmall(Algorithm):
     """
     Empirical Risk Minimization with Deit (Deit-small)
     """
@@ -198,7 +198,7 @@ class DeitTiny(ERM):
             weight_decay=self.hparams['weight_decay'],
         )
 
-class CVTSmall(ERM):
+class CVTSmall(Algorithm):
     """
     Empirical Risk Minimization with Deit (Deit-small)
     """
@@ -235,7 +235,7 @@ class CVTSmall(ERM):
     def predict(self, x):
         return self.network(x)[-1]
 
-class CVTTiny(ERM):
+class CVTTiny(Algorithm):
     """
     Empirical Risk Minimization with Deit (Deit-small)
     """
@@ -273,7 +273,7 @@ class CVTTiny(ERM):
 
 
 
-class CrossImageVIT(ERM):
+class CrossImageVIT(Algorithm):
     """
     Empirical Risk Minimization with Deit (Deit-small)
     """
@@ -344,7 +344,7 @@ class CrossImageVIT(ERM):
         return self.network(x)
 
 
-class CrossImageVITSInf(ERM):
+class CrossImageVITSInf(Algorithm):
     """
     cross image vit with single image inference
     """
@@ -414,7 +414,7 @@ class CrossImageVITSInf(ERM):
     def predictTrain(self, x):
         return self.network(x)
 
-class CrossImageVITSepCE(ERM):
+class CrossImageVITSepCE(Algorithm):
     """
     cross image vit with single image inference
     """
@@ -488,7 +488,7 @@ class CrossImageVITSepCE(ERM):
         return self.network(x,return_list=True)
 
 
-class CrossImageVITSepCE_SINF(ERM):
+class CrossImageVITSepCE_SINF(Algorithm):
 
     """
     cross image vit with single image inference
@@ -565,7 +565,7 @@ class CrossImageVITSepCE_SINF(ERM):
     def predictTrain(self, x):
         return self.network(x,return_list=True)
 
-class CrossImageVIT_self_SepCE_SINF(ERM):
+class CrossImageVIT_self_SepCE_SINF(Algorithm):
 
     """
     cross image vit with single image inference and seperated CE for both final output & self attn out 
@@ -577,6 +577,10 @@ class CrossImageVIT_self_SepCE_SINF(ERM):
         self.countersave=0   
         self.saveSamples=False       
         self.num_domains=num_domains
+
+        self.network_deit=deit_small_patch16_224(pretrained=False) 
+        self.network_deit.head = nn.Linear(384, num_classes)
+        printNetworkParams(self.network_deit)
         self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=1,
             im_enc_depth=8,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
             drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 6,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,return_self=True)
@@ -643,7 +647,7 @@ class CrossImageVIT_self_SepCE_SINF(ERM):
     def predictTrain(self, x):
         return self.network(x,return_list=True)
 
-class CrossImageVITDeit(ERM):
+class CrossImageVITDeit(Algorithm):
     """
     cross image vit with single image inference
     """
@@ -714,7 +718,7 @@ class CrossImageVITDeit(ERM):
         return self.network([x]*self.num_domains)
     def predictTrain(self, x):
         return self.network(x,return_list=True)
-class DeitSmallDtest(ERM):
+class DeitSmallDtest(Algorithm):
     """
     Empirical Risk Minimization with Deit (Deit-small)
     """
@@ -1553,8 +1557,8 @@ def count_parameters(model):
     return total_params
 
 def printNetworkParams(net):
-    # print("network1====",net)
-    # count_parameters(net)
+    print("network1====",net)
+    count_parameters(net)
     pytorch_total_params = sum(p.numel() for p in net.parameters())
     pytorch_total_trainable_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
     print("pytorch_total_params:",pytorch_total_params)
