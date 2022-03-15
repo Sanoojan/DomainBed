@@ -649,12 +649,12 @@ class CrossImageVIT_self_SepCE_SINF(Algorithm):
         return self.network(x,return_list=True)
 
 
-class CrossImageVIT_self_SepCE(algorithm):
+class CrossImageVIT_self_SepCE(Algorithm):
     """
     cross image vit with seperated CE and loss from self attention
     """
     def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super(CrossImageVIT_self_SepCE_SINF, self).__init__(input_shape, num_classes, num_domains,
+        super(CrossImageVIT_self_SepCE, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
 
         self.countersave=0   
