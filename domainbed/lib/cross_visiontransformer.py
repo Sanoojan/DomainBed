@@ -29,6 +29,7 @@ from collections import OrderedDict
 from copy import deepcopy
 import itertools
 from re import X
+from operator import add
 
 import torch
 import torch.nn as nn
@@ -332,7 +333,7 @@ class Block(nn.Module):
             crosstran_out[subset[1]].append(x_j)
         xlist=[sum(x)*1.0/(num_x-1) for x in crosstran_out] # Average over cross attentions
         if self.skipconnection:
-            xlist+=xselflist
+            xlist=list(map(add, xlist, xselflist))
         if self.return_self and self.num_blocks==1:
             return xlist,xselflist
         return xlist
