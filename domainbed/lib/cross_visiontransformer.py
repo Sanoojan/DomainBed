@@ -229,9 +229,34 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-
-
 class Attention(nn.Module):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+
+class CrsAttention(nn.Module):
     def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0.):
         super().__init__()
         inner_dim = dim_head *  heads
@@ -265,29 +290,12 @@ class Attention(nn.Module):
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
-class Transformer(nn.Module):
-    def __init__(self, dim, depth, heads, dim_head, mlp_dim, dropout = 0.):
-        super().__init__()
-        self.layers = nn.ModuleList([])
-        self.norm = nn.LayerNorm(dim)
-        for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout)),
-                PreNorm(dim, FeedForward(dim, mlp_dim, dropout = dropout))
-            ]))
-
-    def forward(self, x):
-        for attn, ff in self.layers:
-            x = attn(x) + x
-            x = ff(x) + x
-        return self.norm(x)
-
 
 class CrossTransformer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, dropout):
         super().__init__()
         self.layers = nn.ModuleList([
-                PreNorm(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = dropout))
+                PreNorm(dim, CrsAttention(dim, heads = heads, dim_head = dim_head, dropout = dropout))
             for _ in range(depth)])
         
 
@@ -304,20 +312,47 @@ class CrossTransformer(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, dim, num_heads,im_enc_depth=1,cross_attn_depth=2,cross_attn_heads = 8,cross_attn_dim_head = 64,dropout=0.,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False,return_self=False,num_blocks=4,skipconnection=False):
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+        super().__init__()
+        self.norm1 = norm_layer(dim)
+        self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+
+    def forward(self, x):
+        x = x + self.drop_path(self.attn(self.norm1(x)))
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        return x
+
+
+class MainBlock(nn.Module):
+
+    def __init__(self, dim, num_heads,im_enc_depth=1,cross_attn_depth=2,cross_attn_heads = 8,cross_attn_dim_head = 64,dropout=0.,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False,return_self=False,num_blocks=4,
+        skipconnection=False,qkv_bias=False, attn_drop_rate=0., drop_path_rate=0.,norm_layer=None,act_layer=None,drop_rate=0.):
         super().__init__()
         self.num_blocks=num_blocks
         self.nocross=nocross
         self.return_self=return_self
         self.skipconnection=skipconnection
+        norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
+        act_layer = act_layer or nn.GELU
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, im_enc_depth)]  # stochastic depth decay rule
+        self.blocks = nn.Sequential(*[
+            Block(
+                dim=dim, num_heads=num_heads, mlp_ratio=4, qkv_bias=qkv_bias, drop=drop_rate,
+                attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer)
+            for i in range(im_enc_depth)])
         if not nocross:
-            self.tran=Transformer(dim = dim, dropout = dropout, depth=im_enc_depth,heads=num_heads,mlp_dim=im_enc_mlp_dim,dim_head=im_enc_dim_head)
             self.crosstran=CrossTransformer(dim=dim,depth=cross_attn_depth,heads=cross_attn_heads,dim_head=cross_attn_dim_head,dropout=dropout)
-        else:
-            self.tran=Transformer(dim = dim, dropout = dropout, depth=im_enc_depth,heads=num_heads,mlp_dim=im_enc_mlp_dim,dim_head=im_enc_dim_head)
+
+           
 
     def forward(self, xlist):
-        xlist = [self.tran(x) for x in xlist]
+        xlist = [self.blocks(x) for x in xlist]
         num_x=len(xlist)
         if num_x==1 or self.nocross:
             return xlist
@@ -353,7 +388,7 @@ class CrossVisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                 im_enc_depth=1,cross_attn_depth=2,num_heads=12,  representation_size=None, distilled=False,
                 drop_rate=0., embed_layer=PatchEmbed, norm_layer=None,
-                weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False,return_self=False,skipconnection=False):
+                weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False,return_self=False,skipconnection=False,qkv_bias=True):
         """
         Args:
             img_size (int, tuple): input image size
@@ -393,9 +428,9 @@ class CrossVisionTransformer(nn.Module):
         self.pos_drop = nn.Dropout(p=drop_rate)
         self.return_self=return_self
         self.blocks =mySequential(*[
-            Block(
+            MainBlock(
                 dim=embed_dim, num_heads=num_heads,im_enc_depth=im_enc_depth,cross_attn_depth=cross_attn_depth,
-                cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head,nocross=nocross,return_self=return_self,skipconnection=skipconnection,num_blocks=depth)
+                cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head,nocross=nocross,return_self=return_self,skipconnection=skipconnection,num_blocks=depth,qkv_bias=qkv_bias)
             for i in range(depth)])
         
         self.norm = norm_layer(embed_dim)
@@ -411,8 +446,8 @@ class CrossVisionTransformer(nn.Module):
             self.pre_logits = nn.Identity()
 
         # Classifier head(s)
-        self.head =nn.Sequential(nn.LayerNorm(self.num_features), nn.Linear(self.num_features, num_classes))
-        # self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
+        # self.head =nn.Sequential(nn.LayerNorm(self.num_features), nn.Linear(self.num_features, num_classes))
+        self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
         
         self.head_dist = None
         if distilled:

@@ -24,6 +24,7 @@ from domainbed import hparams_registry
 from domainbed import algorithms
 from domainbed.lib import misc
 from domainbed import command_launchers
+import itertools
 
 import tqdm
 import shlex
@@ -96,8 +97,17 @@ def all_test_env_combinations(n):
         for j in range(i+1, n):
             yield [i, j]
 
+def one_train_rest_test_combinations(n):
+    """
+     return all combinations of n-1 test
+    envs.
+    """
+
+    list_ind=list(range(n))
+    return itertools.combinations(list_ind, n-1)
+
 def make_args_list(n_trials, dataset_names, algorithms, n_hparams_from, n_hparams, steps,
-    data_dir, task, holdout_fraction, single_test_envs, hparams):
+    data_dir, task, holdout_fraction, single_test_envs,one_train_rest_test, hparams):
     args_list = []
     for trial_seed in range(n_trials):
         for dataset in dataset_names:
@@ -105,6 +115,9 @@ def make_args_list(n_trials, dataset_names, algorithms, n_hparams_from, n_hparam
                 if single_test_envs:
                     all_test_envs = [
                         [i] for i in range(datasets.num_environments(dataset))]
+                elif one_train_rest_test:
+                    all_test_envs = one_train_rest_test_combinations(
+                        datasets.num_environments(dataset))
                 else:
                     all_test_envs = all_test_env_combinations(
                         datasets.num_environments(dataset))
@@ -152,6 +165,7 @@ if __name__ == "__main__":
     parser.add_argument('--steps', type=int, default=None)
     parser.add_argument('--hparams', type=str, default=None)
     parser.add_argument('--holdout_fraction', type=float, default=0.2)
+    parser.add_argument('--one_train_rest_test', action='store_true')
     parser.add_argument('--single_test_envs', action='store_true')
     parser.add_argument('--skip_confirmation', action='store_true')
     args = parser.parse_args()
@@ -167,6 +181,7 @@ if __name__ == "__main__":
         task=args.task,
         holdout_fraction=args.holdout_fraction,
         single_test_envs=args.single_test_envs,
+        one_train_rest_test=args.one_train_rest_test,
         hparams=args.hparams
     )
 

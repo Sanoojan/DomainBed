@@ -345,6 +345,7 @@ if __name__ == "__main__":
                 if(val_acc>=best_val_acc):
                     model_save=copy.deepcopy(algorithm)  #clone
                     best_val_acc=val_acc
+                    savename= 'best_val_model_valdom_'+str(args.test_envs)+"_{:.4f}".format(val_acc)+'.pkl'
                     print("Best model upto now")
                     
             results.update({
@@ -366,6 +367,6 @@ if __name__ == "__main__":
     print("Time taken to train: ",str((stop_time-start_time)/60.0)," minutes")
     save_checkpoint('model.pkl')
     if(args.save_best_model):
-        save_checkpoint_best('best_val_model.pkl',model_save)
+        save_checkpoint_best(savename,model_save)
     with open(os.path.join(args.output_dir, 'done'), 'w') as f:
         f.write('done')

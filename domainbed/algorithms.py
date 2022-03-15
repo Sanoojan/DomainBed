@@ -154,15 +154,14 @@ class DeitSmall(Algorithm):
                     
         # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
         #                               'deit_small_patch16_224', pretrained=True, source='local')    
-        self.network=deit_small_patch16_224(pretrained=False) 
+        self.network=deit_small_patch16_224(pretrained=True) 
         self.network.head = nn.Linear(384, num_classes)
         # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
   
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
             lr=self.hparams["lr"],
-            weight_decay=self.hparams['weight_decay'],
-            eps=self.hparams['eps']
+            weight_decay=self.hparams['weight_decay']
         )
     def update(self, minibatches, unlabeled=None):
         all_x = torch.cat([x for x,y in minibatches])
@@ -587,6 +586,7 @@ class CrossImageVIT_self_SepCE_SINF(Algorithm):
             drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 6,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,return_self=True)
         printNetworkParams(self.network)
         self.network.load_state_dict(self.network_deit.state_dict(),strict=False)
+        self.network.blocks[0].load_state_dict(self.network_deit.state_dict(),strict=False)
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
             lr=self.hparams["lr"],
@@ -746,11 +746,12 @@ class CrossImageVITDeit(Algorithm):
         self.network_deit=deit_small_patch16_224(pretrained=True) 
         self.network_deit.head = nn.Linear(384, num_classes)
         printNetworkParams(self.network_deit)
-        self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=12,
-                im_enc_depth=1,cross_attn_depth=2,num_heads=6, representation_size=None, distilled=False,
+        self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=1,
+                im_enc_depth=12,cross_attn_depth=2,num_heads=6, representation_size=None, distilled=False,
                  drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,nocross=True)
         printNetworkParams(self.network)
         self.network.load_state_dict(self.network_deit.state_dict(),strict=False)
+        self.network.blocks[0].load_state_dict(self.network_deit.state_dict(),strict=False)
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
             lr=self.hparams["lr"],
@@ -1398,67 +1399,11 @@ class JustTransformer(Algorithm):
 
         return {'loss': loss.item()}
 
-        # train_queues = queue_var.train_queues
-        # nclass=len(train_queues)
-        # ndomains=len(train_queues[0])
-        
-        # all_x=None
-        # all_y=None
-
-        
-        # for id_d in range(num_domains): # loop over domains
-        #     mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-        #     # indices of those egs from domain id_d, whose class label is id_c
-        #     label_tensor=minibatches[id_d][1][mb_ids] # labels
-        #     if mb_ids.size(0)==0:
-        #         #print('class has no element')
-        #         continue
-        #     data_tensor=minibatches[id_d][0][mb_ids] # data
-
-        # print(len(minibatches))
-        totalLoss=0
-        domainlabels=[]
-        for domain_num in range(len(minibatches)):
-
-            all_x = torch.cat([x for x,y in [minibatches[domain_num]]])
-            all_y = torch.cat([y for x,y in [minibatches[domain_num]]])
-            # print(type(all_y))
-            loss = F.cross_entropy(self.predictTrain(all_x,domain_num), all_y)
-            # print("domain:",domain_num," ,all_x_size:",all_x.size())
-            # print("domain:",domain_num," ,all_y_size:",all_y.size())
-            domainlabels+=[domain_num]*len(all_y)
-            self.optimizer[domain_num].zero_grad()
-            loss.backward()
-            self.optimizer[domain_num].step()
-            totalLoss+=loss.item()
-
-        domlabels=torch.LongTensor(domainlabels)
-        domlabels=domlabels.cuda()
-        all_x = torch.cat([x for x,y in minibatches])
-        loss = F.cross_entropy(self.predictDomain(all_x), domlabels)
-        self.DDNoptimizer.zero_grad()
-        loss.backward()
-        self.DDNoptimizer.step()
-        return {'loss': totalLoss}
+       
 
     def predict(self, x):
         return self.SelfAttention(x)
-        # print("predict has been called terminate.......")
-        domainprediction=self.DDN(x)
-        dompredict=torch.argmax(domainprediction, dim=1)
-        # print("domain predictions",dompredict)
-        currdomain=dompredict[0].item()
-        # print(dompredict[0].item(),"first one")
-        # print(x[0].shape, "first shape")
-        # print(self.network[0](x[0].unsqueeze(0)))
 
-        return torch.cat([self.network[dompredict[i].item()](x[i].unsqueeze(0)) for i in dompredict])
-        # return np.array([self.network[dompredict[i].item()](x[i].unsqueeze(0))[0].cpu() for i in dompredict])
-
-        # for net in self.network:
-        #     predictions.append(net(x))
-            
-        # return self.network[currdomain](x)
     
     def predictDomain(self,x):
         return self.DDN(x)
