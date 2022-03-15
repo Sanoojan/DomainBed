@@ -649,7 +649,7 @@ class CrossImageVIT_self_SepCE_SINF(Algorithm):
         return self.network(x,return_list=True)
 
 
-class CrossImageVIT_self_SepCE(CrossImageVIT_self_SepCE_SINF):
+class CrossImageVIT_self_SepCE(algorithm):
     """
     cross image vit with seperated CE and loss from self attention
     """
@@ -674,9 +674,62 @@ class CrossImageVIT_self_SepCE(CrossImageVIT_self_SepCE_SINF):
             lr=self.hparams["lr"],
             weight_decay=self.hparams['weight_decay']
         )
+    def update(self, minibatches, unlabeled=None):
+
+        train_queues = queue_var.train_queues
+        nclass=len(train_queues)
+        ndomains=len(train_queues[0])
+        for id_c in range(nclass): # loop over classes
+            for id_d in range(ndomains): # loop over domains
+                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
+                # indices of those egs from domain id_d, whose class label is id_c
+                label_tensor=minibatches[id_d][1][mb_ids] # labels
+                if mb_ids.size(0)==0:
+                    #print('class has no element')
+                    continue
+                data_tensor=minibatches[id_d][0][mb_ids] # data
+                data_tensor = data_tensor.detach()
+                
+                # update queue for this class and this domain
+                current_queue = train_queues[id_c][id_d]
+                current_queue = torch.cat((current_queue, data_tensor), 0)
+                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
+                train_queues[id_c][id_d] = current_queue
+                # all_labels+=label_tensor
+        cross_learning_data=[[] for i in range(ndomains)]  
+        cross_learning_labels=[]
+        for cls in range(nclass):
+            for i in range(queue_sz) :
+                for dom_n in range(ndomains):
+                    cross_learning_data[dom_n].append(train_queues[cls][dom_n][i])
+                cross_learning_labels.append(cls)
+
+        cross_learning_data=[torch.stack(data) for data in cross_learning_data]
+        cross_learning_labels=torch.tensor(cross_learning_labels).to("cuda")
+        if (self.countersave<6 and self.saveSamples):
+            for dom_n in range(ndomains):
+                batch_images = make_grid(cross_learning_data[dom_n], nrow=queue_sz, normalize=True)
+                save_image(batch_images, "./domainbed/image_outputs/batch_im_"+str(self.countersave)+"_"+str(dom_n)+".png",normalize=False)
+            self.countersave+=1
+        pred,pred_only_self=self.predictTrain(cross_learning_data)
+        loss = 0
+
+        for dom_n in range (self.num_domains):
+            loss+= F.cross_entropy(pred[dom_n], cross_learning_labels)+F.cross_entropy(pred_only_self[dom_n], cross_learning_labels)
+            
+        loss=loss*1.0/self.num_domains
+
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {'loss': loss.item()}
 
     def predict(self, x):
         return sum(self.network([x]*2))
+    def predictTrain(self, x):
+        return self.network(x,return_list=True)
 
 
 class CrossImageVITDeit(Algorithm):
