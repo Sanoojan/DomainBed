@@ -303,11 +303,12 @@ class CrossTransformer(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, dim, num_heads,im_enc_depth=1,cross_attn_depth=2,cross_attn_heads = 8,cross_attn_dim_head = 64,dropout=0.,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False,return_self=False,num_blocks=4):
+    def __init__(self, dim, num_heads,im_enc_depth=1,cross_attn_depth=2,cross_attn_heads = 8,cross_attn_dim_head = 64,dropout=0.,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False,return_self=False,num_blocks=4,skipconnection=False):
         super().__init__()
         self.num_blocks=num_blocks
         self.nocross=nocross
         self.return_self=return_self
+        self.skipconnection=skipconnection
         if not nocross:
             self.tran=Transformer(dim = dim, dropout = dropout, depth=im_enc_depth,heads=num_heads,mlp_dim=im_enc_mlp_dim,dim_head=im_enc_dim_head)
             self.crosstran=CrossTransformer(dim=dim,depth=cross_attn_depth,heads=cross_attn_heads,dim_head=cross_attn_dim_head,dropout=dropout)
@@ -319,7 +320,7 @@ class Block(nn.Module):
         num_x=len(xlist)
         if num_x==1 or self.nocross:
             return xlist
-        if self.return_self and self.num_blocks==1:
+        if (self.return_self and self.num_blocks==1) or self.skipconnection:
             xselflist=xlist
         
         list_ind=list(range(num_x))
@@ -330,6 +331,8 @@ class Block(nn.Module):
             crosstran_out[subset[0]].append(x_i)
             crosstran_out[subset[1]].append(x_j)
         xlist=[sum(x)*1.0/(num_x-1) for x in crosstran_out] # Average over cross attentions
+        if self.skipconnection:
+            xlist+=xselflist
         if self.return_self and self.num_blocks==1:
             return xlist,xselflist
         return xlist
@@ -349,7 +352,7 @@ class CrossVisionTransformer(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                 im_enc_depth=1,cross_attn_depth=2,num_heads=12,  representation_size=None, distilled=False,
                 drop_rate=0., embed_layer=PatchEmbed, norm_layer=None,
-                weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False,return_self=False):
+                weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=2048,im_enc_dim_head=64,nocross=False,return_self=False,skipconnection=False):
         """
         Args:
             img_size (int, tuple): input image size
@@ -391,7 +394,7 @@ class CrossVisionTransformer(nn.Module):
         self.blocks =mySequential(*[
             Block(
                 dim=embed_dim, num_heads=num_heads,im_enc_depth=im_enc_depth,cross_attn_depth=cross_attn_depth,
-                cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head,nocross=nocross,return_self=return_self,num_blocks=depth)
+                cross_attn_heads = cross_attn_heads,cross_attn_dim_head = cross_attn_dim_head,dropout=dropout,im_enc_mlp_dim=im_enc_mlp_dim,im_enc_dim_head=im_enc_dim_head,nocross=nocross,return_self=return_self,skipconnection=skipconnection,num_blocks=depth)
             for i in range(depth)])
         
         self.norm = norm_layer(embed_dim)

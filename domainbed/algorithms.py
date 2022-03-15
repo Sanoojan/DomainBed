@@ -287,7 +287,7 @@ class CrossImageVIT(Algorithm):
         self.num_domains=num_domains
         self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=4,
                 im_enc_depth=2,cross_attn_depth=2,num_heads=8, representation_size=None, distilled=False,
-                 drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64)
+                 drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,skipconnection=True)
         printNetworkParams(self.network)
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
