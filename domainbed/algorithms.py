@@ -44,6 +44,7 @@ ALGORITHMS = [
     'CrossImageVITSepCE',
     'CrossImageVITSepCE_SINF',
     'CrossImageVIT_self_SepCE_SINF',
+    'CrossImageVIT_self_SepCE',
     'CrossImageVITDeit',
     'ERMBrainstorm',
     'JustTransformer',
@@ -578,14 +579,14 @@ class CrossImageVIT_self_SepCE_SINF(Algorithm):
         self.saveSamples=False       
         self.num_domains=num_domains
 
-        self.network_deit=deit_small_patch16_224(pretrained=False) 
+        self.network_deit=deit_small_patch16_224(pretrained=True) 
         self.network_deit.head = nn.Linear(384, num_classes)
         printNetworkParams(self.network_deit)
         self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=1,
             im_enc_depth=8,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
             drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 6,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,return_self=True)
         printNetworkParams(self.network)
-
+        self.network.load_state_dict(self.network_deit.state_dict(),strict=False)
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
             lr=self.hparams["lr"],
@@ -647,6 +648,37 @@ class CrossImageVIT_self_SepCE_SINF(Algorithm):
     def predictTrain(self, x):
         return self.network(x,return_list=True)
 
+
+class CrossImageVIT_self_SepCE(CrossImageVIT_self_SepCE_SINF):
+    """
+    cross image vit with seperated CE and loss from self attention
+    """
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(CrossImageVIT_self_SepCE_SINF, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+
+        self.countersave=0   
+        self.saveSamples=False       
+        self.num_domains=num_domains
+
+        # self.network_deit=deit_small_patch16_224(pretrained=True) 
+        # self.network_deit.head = nn.Linear(384, num_classes)
+        # printNetworkParams(self.network_deit)
+        self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=1,
+            im_enc_depth=8,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
+            drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 6,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,return_self=True)
+        printNetworkParams(self.network)
+        # self.network.load_state_dict(self.network_deit.state_dict(),strict=False)
+        self.optimizer = torch.optim.AdamW(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+
+    def predict(self, x):
+        return sum(self.network([x]*2))
+
+
 class CrossImageVITDeit(Algorithm):
     """
     cross image vit with single image inference
@@ -658,10 +690,14 @@ class CrossImageVITDeit(Algorithm):
         self.countersave=0   
         self.saveSamples=False       
         self.num_domains=num_domains
-        self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=4,
-                im_enc_depth=3,cross_attn_depth=2,num_heads=6, representation_size=None, distilled=False,
+        self.network_deit=deit_small_patch16_224(pretrained=True) 
+        self.network_deit.head = nn.Linear(384, num_classes)
+        printNetworkParams(self.network_deit)
+        self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=12,
+                im_enc_depth=1,cross_attn_depth=2,num_heads=6, representation_size=None, distilled=False,
                  drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 8,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,nocross=True)
         printNetworkParams(self.network)
+        self.network.load_state_dict(self.network_deit.state_dict(),strict=False)
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
             lr=self.hparams["lr"],
@@ -1557,8 +1593,8 @@ def count_parameters(model):
     return total_params
 
 def printNetworkParams(net):
-    print("network1====",net)
-    count_parameters(net)
+    # print("network1====",net)
+    # count_parameters(net)
     pytorch_total_params = sum(p.numel() for p in net.parameters())
     pytorch_total_trainable_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
     print("pytorch_total_params:",pytorch_total_params)
