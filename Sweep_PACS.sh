@@ -1,15 +1,15 @@
 #!/bin/bash
-#SBATCH --job-name=Cr_SepCE
+#SBATCH --job-name=self_noSInf_12
 #SBATCH --gres gpu:4
 #SBATCH --nodes 1
-#SBATCH --cpus-per-task=20
+#SBATCH --cpus-per-task=16
 #SBATCH --partition=multigpu
 
 for command in delete_incomplete launch
    do
    python -m domainbed.scripts.sweep $command \
       --data_dir=/nfs/users/ext_maryam.sultana/DG_new_idea/domainbed/data \
-      --output_dir=./domainbed/outputs/CrossImageVIT_self_SepCE\
+      --output_dir=./domainbed/outputs/crsImgVIT_self_sepCE_w_pretrained_12 \
       --command_launcher multi_gpu \
       --algorithms CrossImageVIT_self_SepCE \
       --single_test_envs \

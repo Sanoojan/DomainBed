@@ -326,6 +326,7 @@ if __name__ == "__main__":
                 acc = misc.accuracy(algorithm, loader, weights, device)
                 if(args.save_best_model):
                     if (int(name[3]) not in args.test_envs and  "out" in name):
+                        curr_train_env=name[3]
                         temp_acc+=acc
                         temp_count+=1
                 
@@ -345,7 +346,7 @@ if __name__ == "__main__":
                 if(val_acc>=best_val_acc):
                     model_save=copy.deepcopy(algorithm)  #clone
                     best_val_acc=val_acc
-                    savename= 'best_val_model_valdom_'+str(args.test_envs)+"_{:.4f}".format(val_acc)+'.pkl'
+                    savename= 'best_val_model_valdom_'+curr_train_env+"_{:.4f}".format(val_acc)+'.pkl'
                     print("Best model upto now")
                     
             results.update({

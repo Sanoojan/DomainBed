@@ -102,9 +102,9 @@ def one_train_rest_test_combinations(n):
      return all combinations of n-1 test
     envs.
     """
-
     list_ind=list(range(n))
-    return itertools.combinations(list_ind, n-1)
+    for env in itertools.combinations(list_ind, n-1):
+        yield list(env)
 
 def make_args_list(n_trials, dataset_names, algorithms, n_hparams_from, n_hparams, steps,
     data_dir, task, holdout_fraction, single_test_envs,one_train_rest_test, hparams):

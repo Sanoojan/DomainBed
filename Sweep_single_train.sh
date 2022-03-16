@@ -5,7 +5,6 @@
 #SBATCH --cpus-per-task=20
 #SBATCH --partition=multigpu
 
-
 for algo in ERM DeitSmall
     do
         for command in delete_incomplete launch
