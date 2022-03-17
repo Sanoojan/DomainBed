@@ -151,10 +151,12 @@ if __name__ == "__main__":
                 misc.seed_hash(args.trial_seed, env_i))
 
         if hparams['class_balanced']:
-            in_weights = misc.make_weights_for_balanced_classes(in_)
-            out_weights = misc.make_weights_for_balanced_classes(out)
-            if uda is not None:
-                uda_weights = misc.make_weights_for_balanced_classes(uda)
+            in_weights, out_weights, uda_weights = None, None, None
+            #########################???
+            # in_weights = misc.make_weights_for_balanced_classes(in_)
+            # out_weights = misc.make_weights_for_balanced_classes(out)
+            # if uda is not None:
+            #     uda_weights = misc.make_weights_for_balanced_classes(uda)
         else:
             in_weights, out_weights, uda_weights = None, None, None
         in_splits.append((in_, in_weights))
@@ -256,8 +258,9 @@ if __name__ == "__main__":
             if(args.confusion_matrix):
                 conf=misc.confusionMatrix(algorithm, loader, weights, device,args.output_dir,env_name,algo_name)
             elif(args.test_robustness):
-                acc=misc.accuracy(algorithm, loader, weights, device,addnoise=True)
-                print(algo_name,":",env_name[3],":",acc)
+                noise_sd=1.0
+                acc=misc.accuracy(algorithm, loader, weights, device,addnoise=True,noise_sd=noise_sd)
+                print(algo_name,":",str(noise_sd),":",env_name[3],":",acc)
             else:
                 block_acc=misc.plot_block_accuracy2(algorithm, loader, weights, device,args.output_dir,env_name,algo_name)
             

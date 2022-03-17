@@ -18,7 +18,7 @@
             
 #     done
 # done
-for fold in DeitSmall
+for fold in crsImgVIT_self_w_pretrained_10
 do
     for testdom in 0 1 2 3
     do

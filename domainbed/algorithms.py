@@ -603,7 +603,7 @@ class CrossImageVIT_self_SepCE_SINF(Algorithm):
         self.network_deit.head = nn.Linear(384, num_classes)
         printNetworkParams(self.network_deit)
         self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=1,
-            im_enc_depth=12,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
+            im_enc_depth=10,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
             drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 6,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,return_self=True)
         printNetworkParams(self.network)
         self.network.load_state_dict(self.network_deit.state_dict(),strict=False)
