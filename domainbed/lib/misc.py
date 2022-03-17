@@ -13,11 +13,15 @@ from collections import OrderedDict, defaultdict
 from numbers import Number
 import operator
 
+from sklearn.preprocessing import MultiLabelBinarizer
+from sklearn.metrics import confusion_matrix
 import numpy as np
 import torch
 import tqdm
 from collections import Counter
-
+# from domainbed import algorithms
+# from domainbed.visiontransformer import VisionTransformer
+import matplotlib.pyplot as plt
 
 def l2_between_dicts(dict_1, dict_2):
     assert len(dict_1) == len(dict_2)
@@ -149,7 +153,7 @@ def random_pairs_of_minibatches(minibatches):
 
     return pairs
 
-def accuracy(network, loader, weights, device):
+def accuracy(network, loader, weights, device,noise_sd=0.5,addnoise=False):
     correct = 0
     total = 0
     weights_offset = 0
@@ -159,12 +163,10 @@ def accuracy(network, loader, weights, device):
         for x, y in loader:
             x = x.to(device)
             y = y.to(device)
-            p = network.predict(x)
-            # print("y:",y)
-            clspreds=torch.argmax(p, dim=1)
-            # print("pred:",clspreds)
-            # print("p",p)
-            # print("end.....")
+            if(addnoise):
+                x=x + torch.randn_like(x, device='cuda') * noise_sd
+            
+            p  = network.predict(x)
             if weights is None:
                 batch_weights = torch.ones(len(x))
             else:
@@ -172,13 +174,99 @@ def accuracy(network, loader, weights, device):
                 weights_offset += len(x)
             batch_weights = batch_weights.to(device)
             if p.size(1) == 1:
+                # if p.size(1) == 1:
                 correct += (p.gt(0).eq(y).float() * batch_weights.view(-1, 1)).sum().item()
             else:
+                # print('p hai ye', p.size(1))
                 correct += (p.argmax(1).eq(y).float() * batch_weights).sum().item()
             total += batch_weights.sum().item()
     network.train()
 
     return correct / total
+
+def confusionMatrix(network, loader, weights, device,output_dir,env_name,algo_name):
+    if algo_name is None:
+        algo_name=type(network).__name__
+  
+
+    correct = 0
+    total = 0
+    weights_offset = 0
+    y_pred = []
+    y_true = []
+ 
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device)
+            y = y.to(device)
+            p  = network.predict(x)
+            pred=p.argmax(1)
+            y_true=y_true+y.to("cpu").numpy().tolist()
+            y_pred=y_pred+pred.to("cpu").numpy().tolist()
+            # print(y_true)
+            # print("hashf")
+            # print(y_pred)
+            if weights is None:
+                batch_weights = torch.ones(len(x))
+            else:
+                batch_weights = weights[weights_offset : weights_offset + len(x)]
+                weights_offset += len(x)
+            batch_weights = batch_weights.to(device)
+            if p.size(1) == 1:
+                # if p.size(1) == 1:
+                correct += (p.gt(0).eq(y).float() * batch_weights.view(-1, 1)).sum().item()
+            else:
+                # print('p hai ye', p.size(1))
+                correct += (p.argmax(1).eq(y).float() * batch_weights).sum().item()
+            total += batch_weights.sum().item()
+    print(confusion_matrix(y_true, y_pred))
+
+    return correct / total
+
+def plot_block_accuracy2(network, loader, weights, device,output_dir,env_name,algo_name):
+    
+    # print(network)
+    
+    if algo_name is None:
+        algo_name=type(network).__name__
+    try:
+        network=network.network
+    except:
+        network=network.network_original
+    correct = [0]*len(network.blocks)
+    total = [0]*len(network.blocks)
+    weights_offset = [0]*len(network.blocks)
+
+    network.eval()
+    with torch.no_grad():
+        for x, y in loader:
+            x = x.to(device)
+            y = y.to(device)
+            p1=network.acc_for_blocks(x)
+            for count,p in enumerate(p1): 
+                if weights is None:
+                    batch_weights = torch.ones(len(x))
+                else:
+                    batch_weights = weights[weights_offset[count] : weights_offset[count] + len(x)]
+                    weights_offset[count] += len(x)
+                batch_weights = batch_weights.to(device)
+                if p.size(1) == 1:
+                    # if p.size(1) == 1:
+                    correct[count] += (p.gt(0).eq(y).float() * batch_weights.view(-1, 1)).sum().item()
+                else:
+                    # print('p hai ye', p.size(1))
+                    correct[count] += (p.argmax(1).eq(y).float() * batch_weights).sum().item()
+                total[count] += batch_weights.sum().item()
+
+    res = [i / j for i, j in zip(correct, total)]
+    print(algo_name,":",env_name,":blockwise accuracies:",res)
+    plt.plot(res)
+    plt.title(algo_name)
+    plt.xlabel('Block#')
+    plt.ylabel('Acc')
+    plt.savefig(output_dir+"/"+algo_name+"_"+env_name+"_"+'acc.png')
+    return res
+
 
 class Tee:
     def __init__(self, fname, mode="a"):

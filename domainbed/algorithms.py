@@ -45,6 +45,7 @@ ALGORITHMS = [
     'CrossImageVITSepCE_SINF',
     'CrossImageVIT_self_SepCE_SINF',
     'CrossImageVIT_self_SepCE',
+    'CrossImageVIT_self_SepCE_SINF_sim',
     'CrossImageVITDeit',
     'ERMBrainstorm',
     'JustTransformer',
@@ -151,7 +152,11 @@ class DeitSmall(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DeitSmall, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
-                    
+        self.featurizer = networks.Featurizer(input_shape, self.hparams)
+        self.classifier = networks.Classifier(
+            self.featurizer.n_outputs,
+            num_classes,
+            self.hparams['nonlinear_classifier'])       
         # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
         #                               'deit_small_patch16_224', pretrained=True, source='local')    
         self.network=deit_small_patch16_224(pretrained=True) 
@@ -664,6 +669,93 @@ class CrossImageVIT_self_SepCE_SINF(Algorithm):
     def predictTrain(self, x):
         return self.network(x,return_list=True)
 
+class CrossImageVIT_self_SepCE_SINF_sim(Algorithm):
+
+    """
+    cross image vit with single image inference and seperated CE for both final output & self attn out 
+    """
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(CrossImageVIT_self_SepCE_SINF_sim, self).__init__(input_shape, num_classes, num_domains,
+                                  hparams)
+        self.countersave=0   
+        self.saveSamples=False       
+        self.num_domains=num_domains
+
+        self.network_deit=deit_small_patch16_224(pretrained=True) 
+        self.network_deit.head = nn.Linear(384, num_classes)
+        printNetworkParams(self.network_deit)
+        self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=1,
+            im_enc_depth=12,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
+            drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 6,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,return_self=True)
+        printNetworkParams(self.network)
+        self.network.load_state_dict(self.network_deit.state_dict(),strict=False)
+        self.network.blocks[0].load_state_dict(self.network_deit.state_dict(),strict=False)
+        self.optimizer = torch.optim.AdamW(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+    def update(self, minibatches, unlabeled=None):
+
+        train_queues = queue_var.train_queues
+        nclass=len(train_queues)
+        ndomains=len(train_queues[0])
+        for id_c in range(nclass): # loop over classes
+            for id_d in range(ndomains): # loop over domains
+                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
+                # indices of those egs from domain id_d, whose class label is id_c
+                label_tensor=minibatches[id_d][1][mb_ids] # labels
+                if mb_ids.size(0)==0:
+                    #print('class has no element')
+                    continue
+                data_tensor=minibatches[id_d][0][mb_ids] # data
+                data_tensor = data_tensor.detach()
+                
+                # update queue for this class and this domain
+                current_queue = train_queues[id_c][id_d]
+                current_queue = torch.cat((current_queue, data_tensor), 0)
+                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
+                train_queues[id_c][id_d] = current_queue
+                # all_labels+=label_tensor
+        cross_learning_data=[[] for i in range(ndomains)]  
+        cross_learning_labels=[]
+        for cls in range(nclass):
+            for i in range(queue_sz) :
+                for dom_n in range(ndomains):
+                    cross_learning_data[dom_n].append(train_queues[cls][dom_n][i])
+                cross_learning_labels.append(cls)
+
+        cross_learning_data=[torch.stack(data) for data in cross_learning_data]
+        cross_learning_labels=torch.tensor(cross_learning_labels).to("cuda")
+        if (self.countersave<6 and self.saveSamples):
+            for dom_n in range(ndomains):
+                batch_images = make_grid(cross_learning_data[dom_n], nrow=queue_sz, normalize=True)
+                save_image(batch_images, "./domainbed/image_outputs/batch_im_"+str(self.countersave)+"_"+str(dom_n)+".png",normalize=False)
+            self.countersave+=1
+        pred,pred_only_self=self.predictTrain(cross_learning_data)
+        loss = 0
+
+        for dom_n in range (self.num_domains):
+            loss+= F.cross_entropy(pred_only_self[dom_n], cross_learning_labels)
+        list_ind=list(range(len(pred_only_self)))
+        combinations=itertools.combinations(list_ind, 2) 
+        for subset in combinations:
+            loss+=similarityCE(pred[subset[0]],pred[subset[1]])
+
+        loss=loss*1.0/self.num_domains
+
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {'loss': loss.item()}
+    def predict(self, x):
+        return self.network([x])
+    def predictTrain(self, x):
+        return self.network(x,return_list=True)
+
 
 class CrossImageVIT_self_SepCE(Algorithm):
     """
@@ -681,7 +773,7 @@ class CrossImageVIT_self_SepCE(Algorithm):
         self.network_deit.head = nn.Linear(384, num_classes)
         printNetworkParams(self.network_deit)
         self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=1,
-            im_enc_depth=12,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
+            im_enc_depth=11,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
             drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 6,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,return_self=True)
         printNetworkParams(self.network)
         self.network.load_state_dict(self.network_deit.state_dict(),strict=False)
@@ -1544,12 +1636,12 @@ class ERMBrainstorm(Algorithm):
 
 
 class Testing(Algorithm):
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
+    def __init__(self, input_shape, num_classes, num_domains, hparams,pretrained_path):
         super(Testing, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
         # self.featurizer = networks.Featurizer(input_shape, self.hparams)
         # print(self.featurizer)
-        fname="/home/computervision1/Sanoojan/DomainBedS/domainbed/outputs/save_mod_test_deit/model.pkl"
+        fname=pretrained_path
         try:
             self.network=load_model(fname).network
         except:
@@ -1580,9 +1672,9 @@ class Testing(Algorithm):
         self.optimizer.step()
 
         return {'loss': loss.item()}
-
+    # def predict(self, x):
+    #     return sum(self.network([x]*2))
     def predict(self, x):
-        
         return self.network(x)
 
 def load_model(fname):
@@ -1615,3 +1707,20 @@ def printNetworkParams(net):
     pytorch_total_trainable_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
     print("pytorch_total_params:",pytorch_total_params)
     print("pytorch_total_trainable_params:",pytorch_total_trainable_params)
+
+def similarityCE(pred,predTarget):
+    total_loss = 0
+    n_loss_terms = 0
+    temp=0.1
+    pred=pred/temp
+    predTarget=F.softmax(predTarget/temp, dim=-1)
+    for iq, q in enumerate(predTarget):
+        for v in range(len(pred)):
+            if v == iq:
+                # we skip cases where student and teacher operate on the same view
+                continue
+            loss = torch.sum(-q * F.log_softmax(pred[v], dim=-1), dim=-1)
+            total_loss += loss.mean()
+            n_loss_terms += 1
+    total_loss /= n_loss_terms 
+    return total_loss

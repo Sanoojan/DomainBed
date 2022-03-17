@@ -222,7 +222,7 @@ if __name__ == "__main__":
         torch.save(save_dict, os.path.join(args.output_dir, filename))
 
     ################################ Code required for CorrespondenceSelfCross ################################
-    if args.algorithm in ('CorrespondenceSelfCross' ,'DeitSmallDtest','CrossImageVIT','CrossImageVITSepCE','CrossImageVITDeit','CrossImageVITSInf','CrossImageVITSepCE_SINF','CrossImageVIT_self_SepCE_SINF','CrossImageVIT_self_SepCE') : # Queue computations 
+    if args.algorithm in ('CorrespondenceSelfCross' ,'DeitSmallDtest','CrossImageVIT','CrossImageVITSepCE','CrossImageVITDeit','CrossImageVITSInf','CrossImageVITSepCE_SINF','CrossImageVIT_self_SepCE_SINF','CrossImageVIT_self_SepCE','CrossImageVIT_self_SepCE_SINF_sim') : # Queue computations 
         print('Firstly, computing Queues for the algorithm: ',args.algorithm,",pls wait....")
         queue_sz = hparams['batch_size'] # the memory module/ queue size
         minibatches_device = [(x.to(device), y.to(device))
@@ -346,7 +346,7 @@ if __name__ == "__main__":
                 if(val_acc>=best_val_acc):
                     model_save=copy.deepcopy(algorithm)  #clone
                     best_val_acc=val_acc
-                    savename= 'best_val_model_valdom_'+curr_train_env+"_{:.4f}".format(val_acc)+'.pkl'
+                    savename= 'best_val_model_testdom_'+args.test_envs+"_{:.4f}".format(val_acc)+'.pkl'
                     print("Best model upto now")
                     
             results.update({

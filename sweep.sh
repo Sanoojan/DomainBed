@@ -1,11 +1,10 @@
 # CUDA_VISIBLE_DEVICES=2 python -m domainbed.scripts.sweep launch --data_dir=/home/computervision1/DG_new_idea/domainbed/data --output_dir=./domainbed/outputs/JustTransformer_2 --command_launcher gpu_2 --algorithms JustTransformer --single_test_envs --datasets PACS --n_hparams 1  --n_trials 3 --steps 10000 --hparams """{\"batch_size\":32,\"lr\":0.001}"""
 # CUDA_VISIBLE_DEVICES=2,3 python -m domainbed.scripts.sweep launch --data_dir=/home/computervision1/DG_new_idea/domainbed/data --output_dir=./domainbed/outputs/ERM_Res50_pacs_Full_sweep --command_launcher multi_gpu_2_3 --algorithms ERM --single_test_envs --datasets PACS --n_hparams 5  --n_trials 3
-
-CUDA_VISIBLE_DEVICES=2,3 python -m domainbed.scripts.sweep launch \
+python -m domainbed.scripts.sweep launch \
     --data_dir=/home/computervision1/DG_new_idea/domainbed/data \
-    --output_dir=./domainbed/outputs/crsImgVIT_self_w_pretrained \
-    --command_launcher multi_gpu_2_3 \
-    --algorithms CrossImageVIT_self_SepCE_SINF \
+    --output_dir=./domainbed/outputs/CrossImageVIT_self_SepCE_SINF_sim_12 \
+    --command_launcher multi_gpu_2_3\
+    --algorithms CrossImageVIT_self_SepCE_SINF_sim \
     --single_test_envs \
     --datasets PACS \
     --n_hparams 1  \
