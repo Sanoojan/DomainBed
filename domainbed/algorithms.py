@@ -7,7 +7,7 @@ import torch.autograd as autograd
 from torch.autograd import Variable
 import torchvision
 from vit_pytorch import ViT
-from einops import rearrange
+from einops import rearrange,reduce
 from domainbed.lib.visiontransformer import *
 from domainbed.lib.cross_visiontransformer import CrossVisionTransformer
 from domainbed.lib.cvt import tiny_cvt,small_cvt
@@ -734,7 +734,7 @@ class CrossImageVIT_self_SepCE_SINF_sim(Algorithm):
             self.countersave+=1
         pred,pred_only_self=self.predictTrain(cross_learning_data)
         loss = 0
-
+        
         for dom_n in range (self.num_domains):
             loss+= F.cross_entropy(pred_only_self[dom_n], cross_learning_labels)
         list_ind=list(range(len(pred_only_self)))
@@ -925,7 +925,7 @@ class DeitSmallDtest(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DeitSmallDtest, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
-
+        
         self.network=deit_small_patch16_224(pretrained=True) 
         self.network.head = nn.Linear(384, num_classes)
         # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
@@ -965,11 +965,22 @@ class DeitSmallDtest(Algorithm):
         cross_learning_labels=torch.tensor(cross_learning_labels).to("cuda")
 
         pred,feat=self.predict(cross_learning_data)
-        print(feat.shape)
-        feat=rearrange(feat,'b d (w w1) -> b d w w1', w=14)
-        print("After", feat.shape)
+        feat=rearrange(feat,'b (w w1) d -> b d w w1', w=14)
+        feat=reduce(feat,'b c h w -> b c','mean') # global avg pooling
+        feat=torch.chunk(feat,ndomains,dim=0) 
         loss = F.cross_entropy(pred, cross_learning_labels)
-        feat=rearrange(feat,'b d (w w) -> b d w w')
+        print("CE",loss)
+        avg=torch.mean(torch.stack(feat),dim=0)
+        Wd=0.001
+        for i in range(ndomains):
+            divLs=Wd*F.kl_div(feat[i], avg, reduction='batchmean')
+            loss +=  divLs
+            print("divLs",divLs)
+        print("totalloss", loss,"*********")            
+
+
+        
+     
 
         self.optimizer.zero_grad()
         loss.backward()
