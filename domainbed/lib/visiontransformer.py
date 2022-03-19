@@ -343,7 +343,7 @@ class VisionTransformer(nn.Module):
         if self.num_tokens == 2:
             self.head_dist = nn.Linear(self.embed_dim, self.num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x):
+    def forward_features(self, x,ret_feat=False):
         x = self.patch_embed(x)
         cls_token = self.cls_token.expand(x.shape[0], -1, -1)  # stole cls_tokens impl from Phil Wang, thanks
         if self.dist_token is None:
@@ -354,21 +354,29 @@ class VisionTransformer(nn.Module):
         x = self.blocks(x)
         x = self.norm(x)
         if self.dist_token is None:
+            if(ret_feat):
+                return self.pre_logits(x[:, 0]),x[:,1:]
             return self.pre_logits(x[:, 0])
         else:
+            if(ret_feat):
+                return x[:, 0], x[:, 1], x[:, 2:]
             return x[:, 0], x[:, 1]
 
-    def forward(self, x):
-        x = self.forward_features(x)
-        if self.head_dist is not None:
-            x, x_dist = self.head(x[0]), self.head_dist(x[1])  # x must be a tuple
+    def forward(self, x,ret_feat=False):
+        x_all = self.forward_features(x,ret_feat=ret_feat)
+        if self.head_dist is not None: 
+            x, x_dist = self.head(x_all[0]), self.head_dist(x_all[1])  # x must be a tuple
             if self.training and not torch.jit.is_scripting():
                 # during inference, return the average of both classifier predictions
+                if (ret_feat):
+                    return x, x_dist,x_all[2]
                 return x, x_dist
             else:
                 return (x + x_dist) / 2
         else:
-            x = self.head(x)
+            x = self.head(x_all[0])
+            if self.training and not torch.jit.is_scripting():
+                return x,x_all[1]
         return x
 
 

@@ -7,8 +7,7 @@ import torch.autograd as autograd
 from torch.autograd import Variable
 import torchvision
 from vit_pytorch import ViT
-# from timm.models import create_model
-# from timm.models.vision_transformer import _cfg
+from einops import rearrange
 from domainbed.lib.visiontransformer import *
 from domainbed.lib.cross_visiontransformer import CrossVisionTransformer
 from domainbed.lib.cvt import tiny_cvt,small_cvt
@@ -926,9 +925,7 @@ class DeitSmallDtest(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DeitSmallDtest, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
-                    
-        # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
-        #                               'deit_small_patch16_224', pretrained=True, source='local')    
+
         self.network=deit_small_patch16_224(pretrained=True) 
         self.network.head = nn.Linear(384, num_classes)
         # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
@@ -936,67 +933,56 @@ class DeitSmallDtest(Algorithm):
         self.optimizer = torch.optim.AdamW(
             self.network.parameters(),
             lr=self.hparams["lr"],
-            weight_decay=self.hparams['weight_decay'],
-            eps=self.hparams['eps']
+            weight_decay=self.hparams['weight_decay']
         )
     def update(self, minibatches, unlabeled=None):
-        all_x = torch.cat([x for x,y in minibatches])
-        all_y = torch.cat([y for x,y in minibatches])
-        # loss = F.cross_entropy(self.predict(all_x), all_y)
-        
         train_queues = queue_var.train_queues
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        all_labels=[]
         for id_c in range(nclass): # loop over classes
             for id_d in range(ndomains): # loop over domains
                 mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
                 # indices of those egs from domain id_d, whose class label is id_c
-                label_tensor=minibatches[id_d][1][mb_ids] # labels
                 if mb_ids.size(0)==0:
-                    #print('class has no element')
                     continue
                 data_tensor=minibatches[id_d][0][mb_ids] # data
                 data_tensor = data_tensor.detach()
-                
                 # update queue for this class and this domain
                 current_queue = train_queues[id_c][id_d]
                 current_queue = torch.cat((current_queue, data_tensor), 0)
                 current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
                 train_queues[id_c][id_d] = current_queue
-                # all_labels+=label_tensor
-        cross_learning_data1=[]
-        # # cross_learning_data2=[]
+ 
+        cross_learning_data=[]  
         cross_learning_labels=[]
-        # domain_nums=list(range(ndomains))
-        # combinations=itertools.combinations(domain_nums, 2)
-        
-        for i in range(queue_sz):
-            for cls in range(nclass):
-                for j in range(3):
-                    cross_learning_data1.append(train_queues[cls][j][i])
+        for dom_n in range(ndomains):
+            for i in range(queue_sz) :
+                for cls in range(nclass):
+                    cross_learning_data.append(train_queues[cls][dom_n][i])
                     cross_learning_labels.append(cls)
-                # cross_learning_data2.append(train_queues[cls][subset[1]][i])
-                
-        
-        
-        cross_learning_data1=torch.stack(cross_learning_data1)
-        # # cross_learning_data2=torch.stack(cross_learning_data2)
+
+        cross_learning_data=torch.stack(cross_learning_data)
         cross_learning_labels=torch.tensor(cross_learning_labels).to("cuda")
-        # # crossLoss=F.cross_entropy(self.crossnet(cross_learning_data1,cross_learning_data2), cross_learning_labels)
-        # # totloss=loss+crossLoss
-        # print(cross_learning_data1.shape)
-        # print(cross_learning_labels)
-        pred=self.predict(cross_learning_data1)
+
+        pred,feat=self.predict(cross_learning_data)
+        print(feat.shape)
+        feat=rearrange(feat,'b d (w w1) -> b d w w1', w=14)
+        print("After", feat.shape)
         loss = F.cross_entropy(pred, cross_learning_labels)
+        feat=rearrange(feat,'b d (w w) -> b d w w')
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-
         return {'loss': loss.item()}
+
     def predict(self, x):
-        return self.network(x)
+        return self.network(x,ret_feat=True)
+    
+
+
+
+    
    
 
 class CorrespondenceSelfCross(Algorithm):

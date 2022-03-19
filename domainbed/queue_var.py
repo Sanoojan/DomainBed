@@ -6,7 +6,7 @@
 # import math
 
 ##### Variables to set for RCERM #####
-queue_sz=7 # the memory module/ queue size
+queue_sz=6 # the memory module/ queue size
 # tau = 0.05 # temperature parameter in the objective
 # momentum = 0.999 # theta in momentum encoding step
 train_queues=[]
