@@ -660,7 +660,7 @@ class CrossImageVIT_self_SepCE_SINF_sim(Algorithm):
         self.network_deit.head = nn.Linear(384, num_classes)
         printNetworkParams(self.network_deit)
         self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=1,
-            im_enc_depth=10,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
+            im_enc_depth=12,cross_attn_depth=3,num_heads=6, representation_size=None, distilled=False,
             drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 6,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,return_self=True)
         printNetworkParams(self.network)
         self.network.load_state_dict(self.network_deit.state_dict(),strict=False)
@@ -692,6 +692,7 @@ class CrossImageVIT_self_SepCE_SINF_sim(Algorithm):
                 current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
                 train_queues[id_c][id_d] = current_queue
                 # all_labels+=label_tensor
+        queue_var.train_queues=train_queues
         cross_learning_data=[[] for i in range(ndomains)]  
         cross_learning_labels=[]
         for cls in range(nclass):
@@ -927,7 +928,7 @@ class DeitSmallDtest(Algorithm):
                 current_queue = torch.cat((current_queue, data_tensor), 0)
                 current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
                 train_queues[id_c][id_d] = current_queue
- 
+        queue_var.train_queues=train_queues
         cross_learning_data=[]  
         cross_learning_labels=[]
         for dom_n in range(ndomains):
@@ -970,11 +971,6 @@ class DeitSmallDtest(Algorithm):
     def predict(self, x):
         return self.network(x,ret_feat=True)
     
-
-
-
-    
-   
 
 class CorrespondenceSelfCross(Algorithm):
     """
@@ -1084,149 +1080,6 @@ class CorrespondenceSelfCross(Algorithm):
         totloss.backward()
         self.optimizer.step()
         return {'loss': totloss.item()}
-        
-        # all_x=None
-        # all_y=None
-
-        
-        # for id_d in range(num_domains): # loop over domains
-        #     mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-        #     # indices of those egs from domain id_d, whose class label is id_c
-        #     label_tensor=minibatches[id_d][1][mb_ids] # labels
-        #     if mb_ids.size(0)==0:
-        #         #print('class has no element')
-        #         continue
-        #     data_tensor=minibatches[id_d][0][mb_ids] # data
-
-        # print(len(minibatches))
-        totalLoss=0
-        domainlabels=[]
-        for domain_num in range(len(minibatches)):
-
-            all_x = torch.cat([x for x,y in [minibatches[domain_num]]])
-            all_y = torch.cat([y for x,y in [minibatches[domain_num]]])
-            # print(type(all_y))
-            loss = F.cross_entropy(self.predictTrain(all_x,domain_num), all_y)
-            # print("domain:",domain_num," ,all_x_size:",all_x.size())
-            # print("domain:",domain_num," ,all_y_size:",all_y.size())
-            domainlabels+=[domain_num]*len(all_y)
-            self.optimizer[domain_num].zero_grad()
-            loss.backward()
-            self.optimizer[domain_num].step()
-            totalLoss+=loss.item()
-
-        domlabels=torch.LongTensor(domainlabels)
-        domlabels=domlabels.cuda()
-        all_x = torch.cat([x for x,y in minibatches])
-        loss = F.cross_entropy(self.predictDomain(all_x), domlabels)
-        self.DDNoptimizer.zero_grad()
-        loss.backward()
-        self.DDNoptimizer.step()
-        return {'loss': totalLoss}
-
-    def predict(self, x):
-        return self.network(x)
-        # print("predict has been called terminate.......")
-        domainprediction=self.DDN(x)
-        dompredict=torch.argmax(domainprediction, dim=1)
-        # print("domain predictions",dompredict)
-        currdomain=dompredict[0].item()
-        # print(dompredict[0].item(),"first one")
-        # print(x[0].shape, "first shape")
-        # print(self.network[0](x[0].unsqueeze(0)))
-
-        return torch.cat([self.network[dompredict[i].item()](x[i].unsqueeze(0)) for i in dompredict])
-        # return np.array([self.network[dompredict[i].item()](x[i].unsqueeze(0))[0].cpu() for i in dompredict])
-
-        # for net in self.network:
-        #     predictions.append(net(x))
-            
-        # return self.network[currdomain](x)
-    
-    def predictDomain(self,x):
-        return self.DDN(x)
-        # return self.v(x)
-
-    def predictTrain(self,x,domain):
-        if torch.cuda.is_available():
-            self.network[domain].cuda()
-        # print(self.network[domain](x))
-        return self.network[domain](x)
-
-
-class CorrespondenceSelf(Algorithm):
-    """
-    Creating a weighted model from seperately trained models from ERM on seperate doains (ERMWeightedModel)
-    """
-
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super(CorrespondenceSelf, self).__init__(input_shape, num_classes, num_domains,
-                                  hparams)
-        checkpoint=torch.load("/home/computervision1/Sanoojan/DomainBedS/domainbed/pretrained/best_checkpoint.pth")
-        
-        self.SelfAttention = ViT(
-            image_size = 7,
-            patch_size = 1,
-            num_classes = 1000,
-            dim = 512,
-            depth = 2,
-            channels=512,
-            heads = 2,
-            mlp_dim = 1024,
-            dropout = 0.1,
-            emb_dropout = 0.1
-        )
-
-        self.CrossAttention=ViT(
-            image_size = 224,
-            patch_size = 14,
-            num_classes = num_classes,
-            dim = 1024,
-            depth = 6,
-            heads = 16,
-            mlp_dim = 2048,
-            dropout = 0.1,
-            emb_dropout = 0.1
-        )
-        
-        # self.featurizer = torchvision.models.resnet50(pretrained=True)
-
-        self.featurizer =nn.Sequential(*list(torchvision.models.resnet18(pretrained=True).children())[:-2])
-    
-        # nn.Sequential(*list(networks.Featurizer(input_shape, self.hparams).ResNet.children())[:-1])
-        # print(self.featurizer)
-        # print(*list(networks.Featurizer(input_shape, self.hparams).children())[:-2])
-        self.classifier = networks.Classifier(
-            1000,
-            num_classes,
-            self.hparams['nonlinear_classifier'])
-
-        self.network = nn.Sequential(self.featurizer, self.SelfAttention)
-        self.network.load_state_dict(checkpoint['model'])
-        self.network.eval()
-        self.network=nn.Sequential(self.network,self.classifier)
-        # print(self.network)
-        # print("params",self.network.parameters())
-        self.optimizer = torch.optim.Adam(
-            self.network.parameters(),
-            lr=self.hparams["lr"],
-            weight_decay=self.hparams['weight_decay']
-        )
-
-    def update(self, minibatches, unlabeled=None):
-        all_x = torch.cat([x for x,y in minibatches])
-        all_y = torch.cat([y for x,y in minibatches])
-        loss = F.cross_entropy(self.predict(all_x), all_y)
-        # print(self.featurizer(all_x).shape)
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        return {'loss': loss.item()}
-
-        # train_queues = queue_var.train_queues
-        # nclass=len(train_queues)
-        # ndomains=len(train_queues[0])
         
         # all_x=None
         # all_y=None
@@ -1454,3 +1307,4 @@ def similarityCE(pred,predTarget):
             n_loss_terms += 1
     total_loss /= n_loss_terms 
     return total_loss
+
