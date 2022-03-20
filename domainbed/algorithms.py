@@ -284,26 +284,10 @@ class CrossImageVIT(Algorithm):
         )
     def update(self, minibatches, unlabeled=None):
 
-        train_queues = queue_var.train_queues
+        train_queues=UpdateClsTrainQueues(minibatches) # Load data class wise
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        for id_c in range(nclass): # loop over classes
-            for id_d in range(ndomains): # loop over domains
-                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-                # indices of those egs from domain id_d, whose class label is id_c
-                label_tensor=minibatches[id_d][1][mb_ids] # labels
-                if mb_ids.size(0)==0:
-                    #print('class has no element')
-                    continue
-                data_tensor=minibatches[id_d][0][mb_ids] # data
-                data_tensor = data_tensor.detach()
-                
-                # update queue for this class and this domain
-                current_queue = train_queues[id_c][id_d]
-                current_queue = torch.cat((current_queue, data_tensor), 0)
-                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
-                train_queues[id_c][id_d] = current_queue
-                # all_labels+=label_tensor
+
         cross_learning_data=[[] for i in range(ndomains)]  
         cross_learning_labels=[]
         for cls in range(nclass):
@@ -355,26 +339,10 @@ class CrossImageVITSInf(Algorithm):
         )
     def update(self, minibatches, unlabeled=None):
 
-        train_queues = queue_var.train_queues
+        train_queues=UpdateClsTrainQueues(minibatches) # Load data class wise
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        for id_c in range(nclass): # loop over classes
-            for id_d in range(ndomains): # loop over domains
-                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-                # indices of those egs from domain id_d, whose class label is id_c
-                label_tensor=minibatches[id_d][1][mb_ids] # labels
-                if mb_ids.size(0)==0:
-                    #print('class has no element')
-                    continue
-                data_tensor=minibatches[id_d][0][mb_ids] # data
-                data_tensor = data_tensor.detach()
-                
-                # update queue for this class and this domain
-                current_queue = train_queues[id_c][id_d]
-                current_queue = torch.cat((current_queue, data_tensor), 0)
-                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
-                train_queues[id_c][id_d] = current_queue
-                # all_labels+=label_tensor
+
         cross_learning_data=[[] for i in range(ndomains)]  
         cross_learning_labels=[]
         for cls in range(nclass):
@@ -431,26 +399,10 @@ class CrossImageVITSepCE(Algorithm):
         )
     def update(self, minibatches, unlabeled=None):
 
-        train_queues = queue_var.train_queues
+        train_queues=UpdateClsTrainQueues(minibatches) # Load data class wise
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        for id_c in range(nclass): # loop over classes
-            for id_d in range(ndomains): # loop over domains
-                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-                # indices of those egs from domain id_d, whose class label is id_c
-                label_tensor=minibatches[id_d][1][mb_ids] # labels
-                if mb_ids.size(0)==0:
-                    #print('class has no element')
-                    continue
-                data_tensor=minibatches[id_d][0][mb_ids] # data
-                data_tensor = data_tensor.detach()
-                
-                # update queue for this class and this domain
-                current_queue = train_queues[id_c][id_d]
-                current_queue = torch.cat((current_queue, data_tensor), 0)
-                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
-                train_queues[id_c][id_d] = current_queue
-                # all_labels+=label_tensor
+
         cross_learning_data=[[] for i in range(ndomains)]  
         cross_learning_labels=[]
         for cls in range(nclass):
@@ -507,26 +459,10 @@ class CrossImageVITSepCE_SINF(Algorithm):
         )
     def update(self, minibatches, unlabeled=None):
 
-        train_queues = queue_var.train_queues
+        train_queues=UpdateClsTrainQueues(minibatches) # Load data class wise
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        for id_c in range(nclass): # loop over classes
-            for id_d in range(ndomains): # loop over domains
-                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-                # indices of those egs from domain id_d, whose class label is id_c
-                label_tensor=minibatches[id_d][1][mb_ids] # labels
-                if mb_ids.size(0)==0:
-                    #print('class has no element')
-                    continue
-                data_tensor=minibatches[id_d][0][mb_ids] # data
-                data_tensor = data_tensor.detach()
-                
-                # update queue for this class and this domain
-                current_queue = train_queues[id_c][id_d]
-                current_queue = torch.cat((current_queue, data_tensor), 0)
-                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
-                train_queues[id_c][id_d] = current_queue
-                # all_labels+=label_tensor
+
         cross_learning_data=[[] for i in range(ndomains)]  
         cross_learning_labels=[]
         for cls in range(nclass):
@@ -589,26 +525,10 @@ class CrossImageVIT_self_SepCE_SINF(Algorithm):
         )
     def update(self, minibatches, unlabeled=None):
 
-        train_queues = queue_var.train_queues
+        train_queues=UpdateClsTrainQueues(minibatches) # Load data class wise
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        for id_c in range(nclass): # loop over classes
-            for id_d in range(ndomains): # loop over domains
-                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-                # indices of those egs from domain id_d, whose class label is id_c
-                label_tensor=minibatches[id_d][1][mb_ids] # labels
-                if mb_ids.size(0)==0:
-                    #print('class has no element')
-                    continue
-                data_tensor=minibatches[id_d][0][mb_ids] # data
-                data_tensor = data_tensor.detach()
-                
-                # update queue for this class and this domain
-                current_queue = train_queues[id_c][id_d]
-                current_queue = torch.cat((current_queue, data_tensor), 0)
-                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
-                train_queues[id_c][id_d] = current_queue
-                # all_labels+=label_tensor
+
         cross_learning_data=[[] for i in range(ndomains)]  
         cross_learning_labels=[]
         for cls in range(nclass):
@@ -671,28 +591,10 @@ class CrossImageVIT_self_SepCE_SINF_sim(Algorithm):
             weight_decay=self.hparams['weight_decay']
         )
     def update(self, minibatches, unlabeled=None):
-
-        train_queues = queue_var.train_queues
+        train_queues=UpdateClsTrainQueues(minibatches) # Load data class wise
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        for id_c in range(nclass): # loop over classes
-            for id_d in range(ndomains): # loop over domains
-                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-                # indices of those egs from domain id_d, whose class label is id_c
-                label_tensor=minibatches[id_d][1][mb_ids] # labels
-                if mb_ids.size(0)==0:
-                    #print('class has no element')
-                    continue
-                data_tensor=minibatches[id_d][0][mb_ids] # data
-                data_tensor = data_tensor.detach()
-                
-                # update queue for this class and this domain
-                current_queue = train_queues[id_c][id_d]
-                current_queue = torch.cat((current_queue, data_tensor), 0)
-                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
-                train_queues[id_c][id_d] = current_queue
-                # all_labels+=label_tensor
-        queue_var.train_queues=train_queues
+        
         cross_learning_data=[[] for i in range(ndomains)]  
         cross_learning_labels=[]
         for cls in range(nclass):
@@ -761,26 +663,10 @@ class CrossImageVIT_self_SepCE(Algorithm):
         )
     def update(self, minibatches, unlabeled=None):
 
-        train_queues = queue_var.train_queues
+        train_queues=UpdateClsTrainQueues(minibatches) # Load data class wise
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        for id_c in range(nclass): # loop over classes
-            for id_d in range(ndomains): # loop over domains
-                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-                # indices of those egs from domain id_d, whose class label is id_c
-                label_tensor=minibatches[id_d][1][mb_ids] # labels
-                if mb_ids.size(0)==0:
-                    #print('class has no element')
-                    continue
-                data_tensor=minibatches[id_d][0][mb_ids] # data
-                data_tensor = data_tensor.detach()
-                
-                # update queue for this class and this domain
-                current_queue = train_queues[id_c][id_d]
-                current_queue = torch.cat((current_queue, data_tensor), 0)
-                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
-                train_queues[id_c][id_d] = current_queue
-                # all_labels+=label_tensor
+
         cross_learning_data=[[] for i in range(ndomains)]  
         cross_learning_labels=[]
         for cls in range(nclass):
@@ -844,26 +730,10 @@ class CrossImageVITDeit(Algorithm):
         )
     def update(self, minibatches, unlabeled=None):
 
-        train_queues = queue_var.train_queues
+        train_queues=UpdateClsTrainQueues(minibatches) # Load data class wise
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        for id_c in range(nclass): # loop over classes
-            for id_d in range(ndomains): # loop over domains
-                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-                # indices of those egs from domain id_d, whose class label is id_c
-                label_tensor=minibatches[id_d][1][mb_ids] # labels
-                if mb_ids.size(0)==0:
-                    #print('class has no element')
-                    continue
-                data_tensor=minibatches[id_d][0][mb_ids] # data
-                data_tensor = data_tensor.detach()
-                
-                # update queue for this class and this domain
-                current_queue = train_queues[id_c][id_d]
-                current_queue = torch.cat((current_queue, data_tensor), 0)
-                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
-                train_queues[id_c][id_d] = current_queue
-                # all_labels+=label_tensor
+
         cross_learning_data=[[] for i in range(ndomains)]  
         cross_learning_labels=[]
         for cls in range(nclass):
@@ -912,23 +782,10 @@ class DeitSmallDtest(Algorithm):
             weight_decay=self.hparams['weight_decay']
         )
     def update(self, minibatches, unlabeled=None):
-        train_queues = queue_var.train_queues
+        train_queues=UpdateClsTrainQueues(minibatches) # Load data class wise
         nclass=len(train_queues)
         ndomains=len(train_queues[0])
-        for id_c in range(nclass): # loop over classes
-            for id_d in range(ndomains): # loop over domains
-                mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-                # indices of those egs from domain id_d, whose class label is id_c
-                if mb_ids.size(0)==0:
-                    continue
-                data_tensor=minibatches[id_d][0][mb_ids] # data
-                data_tensor = data_tensor.detach()
-                # update queue for this class and this domain
-                current_queue = train_queues[id_c][id_d]
-                current_queue = torch.cat((current_queue, data_tensor), 0)
-                current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
-                train_queues[id_c][id_d] = current_queue
-        queue_var.train_queues=train_queues
+
         cross_learning_data=[]  
         cross_learning_labels=[]
         for dom_n in range(ndomains):
@@ -1081,63 +938,10 @@ class CorrespondenceSelfCross(Algorithm):
         self.optimizer.step()
         return {'loss': totloss.item()}
         
-        # all_x=None
-        # all_y=None
-
-        
-        # for id_d in range(num_domains): # loop over domains
-        #     mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-        #     # indices of those egs from domain id_d, whose class label is id_c
-        #     label_tensor=minibatches[id_d][1][mb_ids] # labels
-        #     if mb_ids.size(0)==0:
-        #         #print('class has no element')
-        #         continue
-        #     data_tensor=minibatches[id_d][0][mb_ids] # data
-
-        # print(len(minibatches))
-        totalLoss=0
-        domainlabels=[]
-        for domain_num in range(len(minibatches)):
-
-            all_x = torch.cat([x for x,y in [minibatches[domain_num]]])
-            all_y = torch.cat([y for x,y in [minibatches[domain_num]]])
-            # print(type(all_y))
-            loss = F.cross_entropy(self.predictTrain(all_x,domain_num), all_y)
-            # print("domain:",domain_num," ,all_x_size:",all_x.size())
-            # print("domain:",domain_num," ,all_y_size:",all_y.size())
-            domainlabels+=[domain_num]*len(all_y)
-            self.optimizer[domain_num].zero_grad()
-            loss.backward()
-            self.optimizer[domain_num].step()
-            totalLoss+=loss.item()
-
-        domlabels=torch.LongTensor(domainlabels)
-        domlabels=domlabels.cuda()
-        all_x = torch.cat([x for x,y in minibatches])
-        loss = F.cross_entropy(self.predictDomain(all_x), domlabels)
-        self.DDNoptimizer.zero_grad()
-        loss.backward()
-        self.DDNoptimizer.step()
-        return {'loss': totalLoss}
+       
 
     def predict(self, x):
         return self.network(x)
-        # print("predict has been called terminate.......")
-        domainprediction=self.DDN(x)
-        dompredict=torch.argmax(domainprediction, dim=1)
-        # print("domain predictions",dompredict)
-        currdomain=dompredict[0].item()
-        # print(dompredict[0].item(),"first one")
-        # print(x[0].shape, "first shape")
-        # print(self.network[0](x[0].unsqueeze(0)))
-
-        return torch.cat([self.network[dompredict[i].item()](x[i].unsqueeze(0)) for i in dompredict])
-        # return np.array([self.network[dompredict[i].item()](x[i].unsqueeze(0))[0].cpu() for i in dompredict])
-
-        # for net in self.network:
-        #     predictions.append(net(x))
-            
-        # return self.network[currdomain](x)
     
     def predictDomain(self,x):
         return self.DDN(x)
@@ -1186,24 +990,7 @@ class ERMBrainstorm(Algorithm):
         ) for i in range(num_domains)]
     
     def update(self, minibatches, unlabeled=None):
-        # train_queues = queue_var.train_queues
-        # nclass=len(train_queues)
-        # ndomains=len(train_queues[0])
-        
-        # all_x=None
-        # all_y=None
-
-        
-        # for id_d in range(num_domains): # loop over domains
-        #     mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
-        #     # indices of those egs from domain id_d, whose class label is id_c
-        #     label_tensor=minibatches[id_d][1][mb_ids] # labels
-        #     if mb_ids.size(0)==0:
-        #         #print('class has no element')
-        #         continue
-        #     data_tensor=minibatches[id_d][0][mb_ids] # data
-
-        # print(len(minibatches))
+       
         totalLoss=0
         domainlabels=[]
         for domain_num in range(len(minibatches)):
@@ -1308,3 +1095,26 @@ def similarityCE(pred,predTarget):
     total_loss /= n_loss_terms 
     return total_loss
 
+def UpdateClsTrainQueues(minibatches):
+    train_queues=queue_var.train_queues
+    nclass=len(train_queues)
+    ndomains=len(train_queues[0])
+    for id_c in range(nclass): # loop over classes
+        for id_d in range(ndomains): # loop over domains
+            mb_ids=(minibatches[id_d][1] == id_c).nonzero(as_tuple=True)[0]
+            # indices of those egs from domain id_d, whose class label is id_c
+            label_tensor=minibatches[id_d][1][mb_ids] # labels
+            if mb_ids.size(0)==0:
+                #print('class has no element')
+                continue
+            data_tensor=minibatches[id_d][0][mb_ids] # data
+            data_tensor = data_tensor.detach()
+            
+            # update queue for this class and this domain
+            current_queue = train_queues[id_c][id_d]
+            current_queue = torch.cat((current_queue, data_tensor), 0)
+            current_queue = current_queue[-queue_sz:] # keep only the last queue_sz entries
+            train_queues[id_c][id_d] = current_queue
+            # all_labels+=label_tensor
+    queue_var.train_queues=train_queues
+    return train_queues
