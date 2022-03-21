@@ -374,10 +374,12 @@ class VisionTransformer(nn.Module):
             else:
                 return (x + x_dist) / 2
         else:
-            x = self.head(x_all[0])
-            if self.training and not torch.jit.is_scripting():
+            if(ret_feat):
+                x = self.head(x_all[0])
+            if self.training and (not torch.jit.is_scripting()) and ret_feat:
+                
                 return x,x_all[1]
-        return x
+        return x_all
 
 
 def _init_vit_weights(module: nn.Module, name: str = '', head_bias: float = 0., jax_impl: bool = False):

@@ -19,3 +19,6 @@ domainbed/image_outputs/
 *.out
 
 Sweep_PACS.sh
+Sweep_PACS.sh
+Sweep_DomainNet.sh
+Sweep_PACS.sh

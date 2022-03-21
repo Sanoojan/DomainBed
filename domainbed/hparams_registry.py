@@ -37,6 +37,9 @@ def _hparams(algorithm, dataset, random_seed):
 
     # Algorithm-specific hparam definitions. Each block of code below
     # corresponds to exactly one algorithm.
+    if algorithm in ['CrossImageVIT_self_SepCE_SINF_sim']:
+        _hparam('Ws', 1.0, lambda r: r.choice([0., 0.1, 0.05, 0.8,2.0]))
+
     if algorithm in ['DeitSmall', 'DeitTiny']:
         _hparam('eps', 1e-8, lambda r: 10**r.uniform(-2, 2))
     if algorithm in ['DANN', 'CDANN']:

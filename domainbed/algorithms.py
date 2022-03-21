@@ -126,13 +126,7 @@ class DeitSmall(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DeitSmall, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
-        self.featurizer = networks.Featurizer(input_shape, self.hparams)
-        self.classifier = networks.Classifier(
-            self.featurizer.n_outputs,
-            num_classes,
-            self.hparams['nonlinear_classifier'])       
-        # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
-        #                               'deit_small_patch16_224', pretrained=True, source='local')    
+   
         self.network=deit_small_patch16_224(pretrained=True) 
         self.network.head = nn.Linear(384, num_classes)
         # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
@@ -590,6 +584,9 @@ class CrossImageVIT_self_SepCE_SINF_sim(Algorithm):
             lr=self.hparams["lr"],
             weight_decay=self.hparams['weight_decay']
         )
+
+        self.Ws=self.hparams['Ws']
+
     def update(self, minibatches, unlabeled=None):
         train_queues=UpdateClsTrainQueues(minibatches) # Load data class wise
         nclass=len(train_queues)
@@ -612,16 +609,14 @@ class CrossImageVIT_self_SepCE_SINF_sim(Algorithm):
             self.countersave+=1
         pred,pred_only_self=self.predictTrain(cross_learning_data)
         loss = 0
-        
+
+        Ws=self.Ws
         for dom_n in range (self.num_domains):
-            loss+= F.cross_entropy(pred_only_self[dom_n], cross_learning_labels)
-        # list_ind=list(range(len(pred_only_self)))
-        # combinations=itertools.combinations(list_ind, 2) 
-        avg=(pred[0]+pred[1]+pred[2])/3.0
+            loss+= Ws*F.cross_entropy(pred_only_self[dom_n], cross_learning_labels)
+
+        avg=sum(pred)/(1.0*len(pred))
         for dom in range(ndomains):
             loss+=similarityCE(pred[dom],avg)
-
-
 
         self.optimizer.zero_grad()
         loss.backward()
