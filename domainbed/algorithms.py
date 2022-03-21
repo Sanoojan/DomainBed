@@ -802,7 +802,6 @@ class DeitSmallDtest(Algorithm):
         feat=reduce(feat,'b c h w -> b c','mean') # global avg pooling
         feat=torch.chunk(feat,ndomains,dim=0) 
         loss = F.cross_entropy(pred, cross_learning_labels)
-        # print("CE",loss)
         avg=torch.mean(torch.stack(feat),dim=0)
         Wd=1.0
 
@@ -811,19 +810,6 @@ class DeitSmallDtest(Algorithm):
         loss+=Wd * (F.kl_div(featAVG, featA, reduction='batchmean') +
                     F.kl_div(featAVG, featB, reduction='batchmean') +
                     F.kl_div(featAVG, featC, reduction='batchmean')) 
-    #     p_clean, p_aug1, p_aug2 = F.softmax(
-    #       logits_clean, dim=1), F.softmax(
-    #           logits_aug1, dim=1), F.softmax(
-    #               logits_aug2, dim=1)
-
-    #   # Clamp mixture distribution to avoid exploding KL divergence
-    #      p_mixture = torch.clamp((p_clean + p_aug1 + p_aug2) / 3., 1e-7, 1).log()
-    #     for i in range(ndomains):
-    #         divLs=Wd*F.kl_div(feat[i], avg, reduction='batchmean')
-    #         loss +=  divLs
-    #         print("divLs",divLs)
-    #     print("totalloss", loss,"*********")            
-
 
 
         self.optimizer.zero_grad()
