@@ -126,13 +126,7 @@ class DeitSmall(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DeitSmall, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
-        self.featurizer = networks.Featurizer(input_shape, self.hparams)
-        self.classifier = networks.Classifier(
-            self.featurizer.n_outputs,
-            num_classes,
-            self.hparams['nonlinear_classifier'])       
-        # self.network = torch.hub.load('/home/computervision1/Sanoojan/DomainBedS/deit',
-        #                               'deit_small_patch16_224', pretrained=True, source='local')    
+      
         self.network=deit_small_patch16_224(pretrained=True) 
         self.network.head = nn.Linear(384, num_classes)
         # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
@@ -580,7 +574,7 @@ class CrossImageVIT_self_SepCE_SINF_sim(Algorithm):
         self.network_deit.head = nn.Linear(384, num_classes)
         printNetworkParams(self.network_deit)
         self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=1,
-            im_enc_depth=12,cross_attn_depth=3,num_heads=6, representation_size=None, distilled=False,
+            im_enc_depth=12,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
             drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 6,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,return_self=True)
         printNetworkParams(self.network)
         self.network.load_state_dict(self.network_deit.state_dict(),strict=False)
@@ -615,13 +609,9 @@ class CrossImageVIT_self_SepCE_SINF_sim(Algorithm):
         
         for dom_n in range (self.num_domains):
             loss+= F.cross_entropy(pred_only_self[dom_n], cross_learning_labels)
-        # list_ind=list(range(len(pred_only_self)))
-        # combinations=itertools.combinations(list_ind, 2) 
-        avg=(pred[0]+pred[1]+pred[2])/3.0
+        avg=sum(pred)/(1.0*len(pred))
         for dom in range(ndomains):
             loss+=similarityCE(pred[dom],avg)
-
-
 
         self.optimizer.zero_grad()
         loss.backward()
