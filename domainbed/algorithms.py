@@ -126,11 +126,7 @@ class DeitSmall(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DeitSmall, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
-<<<<<<< HEAD
-   
-=======
       
->>>>>>> 915db2771c03f6875cec9fd3b908b3485fc4f31d
         self.network=deit_small_patch16_224(pretrained=True) 
         self.network.head = nn.Linear(384, num_classes)
         # self.network.head_dist = nn.Linear(384, num_classes)  # reinitialize the last layer for distillation
@@ -578,7 +574,7 @@ class CrossImageVIT_self_SepCE_SINF_sim(Algorithm):
         self.network_deit.head = nn.Linear(384, num_classes)
         printNetworkParams(self.network_deit)
         self.network=CrossVisionTransformer(img_size=224, patch_size=16, in_chans=3, num_classes=num_classes, embed_dim=384, depth=1,
-            im_enc_depth=12,cross_attn_depth=4,num_heads=6, representation_size=None, distilled=False,
+            im_enc_depth=12,cross_attn_depth=3,num_heads=6, representation_size=None, distilled=False,
             drop_rate=0., norm_layer=None, weight_init='',cross_attn_heads = 6,cross_attn_dim_head = 64,dropout = 0.1,im_enc_mlp_dim=1536,im_enc_dim_head=64,return_self=True)
         printNetworkParams(self.network)
         self.network.load_state_dict(self.network_deit.state_dict(),strict=False)

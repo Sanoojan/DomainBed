@@ -4,11 +4,11 @@ for command in delete_incomplete launch
 do
     python -m domainbed.scripts.sweep $command\
         --data_dir=/share/data/drive_2/DG/data \
-        --output_dir=./domainbed/outputs/DomainNet/DeitSmall \
-        --command_launcher gpu_3\
-        --algorithms DeitSmall \
+        --output_dir=./domainbed/outputs/PACS/CrossImageVIT_self_SepCE_SINF_sim \
+        --command_launcher multi_gpu_0_1\
+        --algorithms CrossImageVIT_self_SepCE_SINF_sim \
         --single_test_envs \
-        --datasets DomainNet \
+        --datasets PACS \
         --n_hparams 1  \
         --n_trials 3 \
         --hparams """{\"batch_size\":32}"""

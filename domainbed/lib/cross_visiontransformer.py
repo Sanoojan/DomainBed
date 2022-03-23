@@ -352,8 +352,10 @@ class MainBlock(nn.Module):
            
 
     def forward(self, xlist):
-        xlist = [self.blocks(x) for x in xlist]
         num_x=len(xlist)
+        xlist=torch.cat(xlist,dim=0)
+        xlist = self.blocks(xlist) 
+        xlist=torch.chunk(xlist,num_x,dim=0)
         if num_x==1 or self.nocross:
             return xlist
         if (self.return_self and self.num_blocks==1) or self.skipconnection:
